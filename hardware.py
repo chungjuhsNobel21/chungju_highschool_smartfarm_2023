@@ -1,5 +1,11 @@
 import RPI.GPIO as GPIO
 import Adafruit_DHT
+import time
+import board
+import busio
+import adafruit_mcp3xxx.mcp3008 as MCP
+from adafruit_mcp3xxx.analog_in import AnalogIn
+import RPi.GPIO as GPIO
 
 # 핀 배치들을 변수로 저장해둠
 pin_led_first_floor = 1
@@ -37,7 +43,46 @@ class smartFarm_Device:
         '''EC(전기전도도) 측정해 반환하는 함수'''
         pass
     def get_ph(self)->float :
-        '''ph 측정해 반환하는 함수'''
+
+    # MCP3008 모듈의 SPI 통신 설정
+    spi = busio.SPI(clock=board.SCK, MISO=board.MISO, MOSI=board.MOSI)
+
+    # MCP3008 모듈 초기화
+    mcp = MCP.MCP3008(spi)
+
+    # 아날로그 입력 채널 설정 (0번 핀을 사용하려면 CH0 사용)
+    channel = AnalogIn(mcp, MCP.P0)
+
+    # 여러 번 측정하여 평균값을 계산합니다.
+    num_samples = 10
+    total_ph = 0.0
+    for _ in range(num_samples):
+        # 아날로그 값을 읽어옵니다.
+        raw_value = channel.value
+        # ADC 값을 전압 값으로 변환합니다.
+        voltage = raw_value / 65535.0 * 5.0
+        # pH 값을 계산합니다. (변환식은 pH 측정 센서에 따라 다를 수 있습니다.)
+        # 해당 변환식은 예시일 뿐, 실제 센서의 데이터시트를 참고해야 합니다.
+        ph = 7 - (voltage - 2.5) * 3
+        total_ph += ph
+        # 측정 사이에 잠시 대기합니다.
+        time.sleep(0.1)
+
+    # 평균 pH 값을 계산합니다.
+    avg_ph = total_ph / num_samples
+
+    return avg_ph
+
+# GPIO 모드 설정
+GPIO.setmode(GPIO.BCM)
+
+# pH 값을 측정합니다.
+pH_value = get_ph()
+print(f"측정된 pH 값: {pH_value}")
+
+# GPIO 모드 초기화
+GPIO.cleanup()
+'''
         pass
 
     def set_pump_state(self, state:str) :
