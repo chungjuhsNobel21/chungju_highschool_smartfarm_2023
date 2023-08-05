@@ -81,6 +81,7 @@ class smartFarm_Device:
         # TODO : 아날로그 입력 채널 핀 설정?? 0번핀이 뭔데
         # 아날로그 입력 채널 설정 (0번 핀을 사용하려면 CH0 사용)
         self._analog_channel = AnalogIn(mcp, MCP.P0)
+        self._analog_channel_water_level = AnalogIn(mcp, MCP.P1)
 
 
 
@@ -190,7 +191,12 @@ class smartFarm_Device:
     
     def get_water_level(self)->float :
         '''3층 물통 수위 측정해 반환하는 함수'''
-        pass
+        raw_value = self._analog_channel_water_level.value
+        voltage = raw_value / 65535.0 * 5.0
+        water_level = voltage/5.0 #상수값은 센서 길이따라 변동
+        
+        return water_level
+        
 
     def set_light_state(self, state:list) :
         '''
