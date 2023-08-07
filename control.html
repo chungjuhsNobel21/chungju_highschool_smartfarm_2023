@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="ko">
+    <head>
+        <meta charset="UTF-8">
+        <title>smartfarm_control</title>
+    </head>
+    <body>
+        <form action="/control/set_temp" method = "post">
+            <h2>온도</h2>
+            <p>최저온도<input type="number" name="temp"></p>
+            <input type="submit">
+        </form>
+        <form action="/control/set_time_period" method = "post">
+            <h2>시간</h2>
+            <p>불을 키는 시간<input type="time" name="turn_on_time"></p>
+            <p>불을 꺼는 시간<input type="time" name="turn_off_time"></p>
+            <input type="submit">
+        </form>
+    </body>
+    
+</html>
