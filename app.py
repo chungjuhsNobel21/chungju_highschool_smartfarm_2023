@@ -19,6 +19,7 @@ class FlaskAppWrapper():
         self.app.add_url_rule('/', 'index', self.index, methods=['GET'])
         self.app.add_url_rule('/auth', 'authenticate', self.authenticate, methods=['POST'])
         # TODO : start_background_task 작동하는지 확인
+        # TODO : background_thread에서 context_manager 관련 문제 해결
         self.background_thread = self.socketio.start_background_task(self.background_task)
 
     # TODO : pickle에서 데이터 얻어오기
@@ -26,14 +27,12 @@ class FlaskAppWrapper():
         pass
 
     async def background_task(self):
-        # TODO : time 시작
         data = await self.smartfarm.get_data_from_smartfarm()
         # TODO : result 처리 및 저장 (동우)
         if self.authenticated == True :
             self.socketio.emit('give_data', data)
 
-        # TODO : time 종료
-        # TODO : 30초 빼기 남은 측정시간만큼 기다리기
+        # TODO : 전체 프로세스가 1분이 소요되도록 기다리기
 
     def index(self):
         return render_template('login.html')
