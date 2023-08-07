@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Show The Graph</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js"></script>
+    <style>
+        #line-chart {
+            width: 300px;
+            height: 250px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Temparture Graph</h2>
+    <canvas id="line-chart"></canvas>
+    <script>
+        // data = {"temperature" : (온도), 
+        // "humidity" : (습도), "water_level" : (수위),
+        // "first_light_state" : (1층 불상태 ('ON'/'OFF')),
+        // "second_light_state" : (2층 불상태),
+        //"heater_state" : (히터 상태 ('ON'/'OFF')) }
+        // TODO : onDocumentReady(창이 맨처음 열렀을때)
+
+        function addData(temperature) {
+            line-Chart.data.datasets.forEach((dataset) => {
+                dataset.data.shift();
+                dataset.data.push(temperature);
+            });
+            line-chart.update();
+        }
+    
+        socket.on("give_data", function(msg){
+            console.log("Resceived temperature::"+msg.temperature);
+            addData(msg.temperature)
+        });
+
+        var ctx = document.getElementById("line-chart").getContext('2d');
+        var lineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [10,20,30,40,50,60],
+                datasets: [{ 
+                    data: [{{inital_temperatures}}],
+                    label: "온도",
+                    borderColor: "#3e95cd",
+                    fill: false
+                            }]
+                    },
+            options: {
+                title: {
+                    display: true,
+                    text: 'temperature'
+                }
+            }
+        });
+    </script>
+
+    <h3>Water Height Graph</h3>
+    <canvas id="line-chart2"></canvas>
+    <script>
+        
+        function addData(height) {
+            line-Chart.data.datasets.forEach((dataset) => {
+                dataset.data.shift();
+                dataset.data.push(height);
+            });
+            line-chart.update();
+        }
+    
+        socket.on("give_data", function(msg){
+            console.log("Resceived temperature::"+msg.height);
+            addData(msg.height)
+        });
+
+        var ctx = document.getElementById("line-chart2").getContext('2d');
+        var lineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [10,20,30,40,50,60],
+                datasets: [{ 
+                    data: [{inital_heights}],
+                    label: "물의 높이",
+                    borderColor: "#8e5ea2",
+                    fill: false
+                            }]
+                    },
+            options: {
+                title: {
+                    display: true,
+                    text: 'height'
+                }
+            }
+        });
+    </script>
+    <h4>Humidity</h4>
+    <canvas id="line-chart3"></canvas>
+    <script>
+        function addData(humidity) {
+            line-Chart.data.datasets.forEach((dataset) => {
+                dataset.data.shift();
+                dataset.data.push(humidity);
+            });
+            line-chart.update();
+        }
+    
+        socket.on("give_data", function(msg){
+            console.log("Resceived temperature::"+msg.humidity);
+            addData(msg.humidity)
+        });
+
+        var ctx = document.getElementById("line-chart3").getContext('2d');
+        var lineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [10,20,30,40,50,60],
+                datasets: [{ 
+                    data: [{inital_humidities}],
+                    label: "습도",
+                    borderColor: "#3cba9f",
+                    fill: false
+                            }]
+                    },
+            options: {
+                title: {
+                    display: true,
+                    text: 'humidity'
+                }
+            }
+        });
+    </script>
+
+</body>
+</html>
