@@ -265,4 +265,30 @@ class smartFarm_Device:
         # TEST : _heater_update 실제 작동 테스트
         print(f"[set_heater_state] : 히터를 {state}로 켭니다/끕니다.")
         GPIO.output(self.pin_heater, state)
-        print("에베베베")
+  
+    def adjust(self):
+        avg_humidity, avg_temperature = self.get_temp_and_humidity()
+
+        # 온도 조절
+        if avg_temperature < self.min_temperature:
+            self._heater_update(GPIO.HIGH)
+        else:
+            self._heater_update(GPIO.LOW)
+
+        now = datetime.now().time()
+
+        if on_time <= now < off_time:
+            GPIO.output(GPIO_PIN, GPIO.HIGH) 
+        else:
+            GPIO.output(GPIO_PIN, GPIO.LOW) 
+
+  
+    def set_min_temp(self, min_temperature):
+        self.min_temperature = min_temperature
+  
+    def set_on_time(on_time):
+        self.on_time = on_time
+  
+    def set_off_time(datetime):
+        self.off_time = off_time
+  
