@@ -265,4 +265,3 @@ class smartFarm_Device:
         # TEST : _heater_update 실제 작동 테스트
         print(f"[set_heater_state] : 히터를 {state}로 켭니다/끕니다.")
         GPIO.output(self.pin_heater, state)
-        print("에베베베")
