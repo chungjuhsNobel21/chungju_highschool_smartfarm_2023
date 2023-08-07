@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- 별 의미는 없는 그냥 주석 연습용 -->
+<html>
+  <head>
+    <link rel="stylesheet" href="login.css" type="text/css">
+    <title>기훈's 로그인창</title>
+  </head>
+  <body>
+    <div class="login_container">
+      <h1>LOGIN</h1>
+      <form name="form_login" action="/auth" method="post">
+        {% if code == False %}
+            <p id="retry_login_message" style="color: red;">{{message}}</p>
+        {% endif %}
+        <fieldset>
+          <legend>로그인 구역</legend>
+          <div class="login_row_container">
+          <label for="id_field">아이디</label>
+            <input type="text" id="id_field" name="id" placeholder="아이디를 입력하세요"> <br>
+          </div>
+          <div class="login_row_container">
+          <label for="pw_field">비밀번호</label>
+            <input type="password" id="pw_field" name="password" placeholder="비밀번호를 입력하세요"><br>
+          </div>
+          <button id="id_submit_button" type="submit" >로그인</button>
+        </fieldset> 
+      </form>
+    </div>
+  </body>
+</html>
