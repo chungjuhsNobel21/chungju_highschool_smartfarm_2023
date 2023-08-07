@@ -7,6 +7,10 @@ from adafruit_mcp3xxx.analog_in import AnalogIn
 import time
 import board
 import busio
+
+import picamera
+import numpy as np
+
 # 핀 배치들을 변수로 저장해둠
 pin_led_first_floor = 1
 pin_led_second_floor = 2
@@ -264,5 +268,37 @@ class smartFarm_Device:
         '''주어진 state에 맞게 히터를 끄거나 켜는 함수'''
         # TEST : _heater_update 실제 작동 테스트
         print(f"[set_heater_state] : 히터를 {state}로 켭니다/끕니다.")
-        GPIO.output(self.pin_heater, state)
-        print("에베베베")
+        GPIO.output(self.pin_heater, state)   
+
+
+    
+    def _get_image(self, state):
+        # 사진(png) 찍고 저장?
+        smf_camera = picamera.Picamera()
+        photo_width = 600
+        photo_height = 600
+
+        smf_camera.start_preview()
+        time.sleep(2)
+
+        smf_photo_arr = np.empty((photo_height,photo_width), dtype =np.unit8)
+        smf_camera.capture(smf_photo_arr,format='rgb')
+
+        smf_camera.stop_preview()
+        smf_camera.close()  
+        
+        return smf_photo_arr
+
+    def _print_image(self,photo_arr):
+        print(smf_photo_arr)
+
+    
+
+        
+
+        
+        
+    
+    
+        
+        
