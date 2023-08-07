@@ -291,4 +291,3 @@ class smartFarm_Device:
   
     def set_off_time(datetime):
         self.off_time = off_time
-  
