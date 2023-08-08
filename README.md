@@ -29,6 +29,11 @@ https://www.youtube.com/watch?v=nyqykZK2Ev4
 - get_light_state()->list[str] : 1층과 2층 LED 전원 상태를 얻어오는 함수 ['on'/'off', 'on'/'off']
 - set_heater_state(state:str) : 전체 히터의 상태를 지정하는 함수
 - get_heater_state()->str : 히터의 상태를 반환하는 함수 ('on'/'off')
+- set_min_temp(float) :
+- set_on_time(datetime) '07:00:00'
+-  self.on_time = datetime 
+- set_off_time()
+- adjust()
 
 # 서버 호스팅 및 웹페이지
 ## server.py(flask 라이브러리로 서버 운영)
