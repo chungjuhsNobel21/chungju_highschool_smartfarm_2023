@@ -2,16 +2,15 @@
 <!-- 별 의미는 없는 그냥 주석 연습용 -->
 <html>
   <head>
-    <link rel="stylesheet" href="login.css" type="text/css">
+    <link rel="stylesheet" href="../static/login.css" type="text/css">
     <title>기훈's 로그인창</title>
   </head>
   <body>
     <div class="login_container">
       <h1>LOGIN</h1>
       <form name="form_login" action="/auth" method="post">
-        <!-- Flask의 Jinja 템플릿 기능 이용함 -->
         {% if code == False %}
-            <p id="retry_login_message" style="color: red;">아이디와 비밀번호를 다시 입력해주세요!</p>
+            <p id="retry_login_message" style="color: red;">아이디와 비밀번호를 다시 확인해주세요!</p>
         {% endif %}
         <fieldset>
           <legend>로그인 구역</legend>

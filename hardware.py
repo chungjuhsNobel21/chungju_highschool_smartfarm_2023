@@ -8,25 +8,22 @@ import time
 import board
 import busio
 from datetime import datetime
+#import picamera
+
 
 # 핀 배치들을 변수로 저장해둠
-pin_led_first_floor = 1
-pin_led_second_floor = 2
-pin_heater = 3
-pin_pump = 4
+pin_led_first_floor = 26
+pin_led_second_floor = 19
+pin_heater = 13
+pin_pump = 6
 pin_water_level_sensor = 5
-pin_ph_sensor = 6
-pin_dht_1 = 7
-pin_dht_2 = 8
-pin_dht_3 = 9
-pin_dht_4 = 10
+pin_ph_sensor = 23
 
-def check_state_integrity(state):
-        '''state가 허용된 값인 GPIO.HIGH 혹은 GPIO.LOW 둘 중 하나의 값인지 무결성을 검증하는 함수'''
-        if state != GPIO.OUT or state != GPIO.IN :
-            raise Exception(f'state로 허용되지 않은 값 {state}가 주어졌습니다!')
-        else :
-            return
+pin_dht_1 = 21
+pin_dht_2 = 20
+pin_dht_3 = 16
+pin_dht_4 = 12
+
 
 # 스마트팜 하드웨어와 소통하는 클래스를 정의
 class smartFarm_Device:
@@ -43,18 +40,33 @@ class smartFarm_Device:
     GPIO.state 형인지 무결성 검사 check_state_integrity를 거침.
 
     '''
-    def __init__(self, user_set_min_temp, user_set_on_time, user_set_off_time):
+    def __init__(self, user_set_min_temp=18):
         '''
         클래스 초기화하며 서버에서 저장된 마지막 사용자설정상태를 받아 self.user_set_변수로 저장함
         - user_set_min_temp : 사용자가 설정한 최저온도
         - user_set_on_time : 사용자가 설정한 불 켜는 시각
         - user_set_off_time : 사용자가 설정한 불 끄는 시각
         '''
+        
+        self.temperature = 0
+        self.humidity = 0
+        self.water_level = 0
+        
         # 사용자의 설정값
         self.user_set_min_temp = user_set_min_temp
-        self.user_set_on_time = user_set_on_time
-        self.user_set_off_time = user_set_off_time
+        # TODO: 테스트 끝나면 풀기
+        # self.on_time = user_set_on_time
+        # self.off_time = user_set_off_time
         self.start_device()
+        
+
+    def check_state_integrity(state):
+        '''state가 허용된 값인 GPIO.HIGH 혹은 GPIO.LOW 둘 중 하나의 값인지 무결성을 검증하는 함수'''
+        if state != GPIO.OUT or state != GPIO.IN :
+            raise Exception(f'state로 허용되지 않은 값 {state}가 주어졌습니다!')
+        else :
+            return
+
 
     def start_device(self):
         '''GPIO 초기 설정을 진행하고 출력 핀을 기본모드로 설정'''
@@ -84,6 +96,7 @@ class smartFarm_Device:
         self._heater_update()
         self._led_first_update()
         self._led_second_update()
+        self._pump_update()
 
         # TODO : dht 관련 문제들 해결 - 이 줄에서 센서 객체들이 인스턴스화가 안됨! ㅅㅂ
         # # 센서 4개의 객체들을 private하게 인스턴스화
@@ -214,7 +227,7 @@ class smartFarm_Device:
         self.pump_state = state
         self._pump_update()        
 
-    def set_light_state(self, state:list) :
+    def set_led_states(self, state:list) :
         '''
         전등의 self.pump_state를 지정하고 그에 맞게 펌프를 켜거나 끄는 함수
         - state : 설정할 펌프의 상태 (GPIO.HIGH/GPIO.LOW)
@@ -257,15 +270,23 @@ class smartFarm_Device:
         self.heater_state = state
         self._heater_update()
       
-    def set_min_temp(self, user_set_min_temperature):
-        self.user_set_min_temperature = user_set_min_temperature
+    def set_min_temp(self, _min_temp):
+        print(f"[hardware.set_min_temp] : 설정 최저 온도를 {_min_temp}로 설정합니다")
+        self.min_temp = _min_temp
   
-    def set_on_time(self, user_set_on_time):
-        self.user_set_on_time = user_set_on_time
+    def set_on_time(self, _on_time):
+        print(f"[hardware.set_on_time] : 전등을 킬 시각을 {_on_time}로 설정합니다")
+        self.on_time = _on_time
   
-    def set_off_time(self, user_set_off_time):
-        self.user_set_off_time = user_set_off_time
+    def set_off_time(self, _off_time):
+        print(f"[hardware.set_off_time] : 전등을 끌 시각을 {_off_time}로 설정합니다")
+        self.off_time = _off_time
 
+    def get_temperature(self):
+        return self.temperature
+    
+    def get_humidity(self):
+        return self.humidity
 
     def get_pump_state(self):
         '''펌프 작동 상태 반환하는 함수 (GPIO.HIGH 혹은 GPIO.LOW)'''
@@ -288,9 +309,9 @@ class smartFarm_Device:
         # TEST : get_heater_state 실제 작동 테스트
         return self.heater_state
 
-  
     def get_image(self):
         # 사진(png) 찍고 저장?
+        print("[hardware.get_image() 실행됨]")
         smf_camera = picamera.Picamera()
         photo_width = 600
         photo_height = 600
@@ -299,9 +320,7 @@ class smartFarm_Device:
         time.sleep(2)
 
         smf_photo_arr = np.empty((photo_height,photo_width), dtype =np.unit8)
-        smf_camera.capture(smf_photo_arr,format='rgb')
-
-        smf_camera.stop_preview()
+        smf_camera.capture(smf_photo_arr,format='grey')
         smf_camera.close()  
         
         return smf_photo_arr
@@ -313,12 +332,21 @@ class smartFarm_Device:
         print(f"[_pump_update] : 펌프를 {self.pump_state}로 켭니다/끕니다.")
         GPIO.output(pin_pump, self.pump_state)
 
+    def _heater_update(self):
+        print(f"[_heater_update] : 펌프를 {self.pump_state}로 켭니다/끕니다.")    
+        GPIO.output(pin_heater, self.heater_state)
+        
+
     def _led_first_update(self):
         # TEST : _led_first_update 실제 작동 테스트
         print(f"[_led_first_update] : 1층 LED를 {self.led_first_state}로 켭니다/끕니다.")
-        GPIO.output(self.pin_led_first_floor, self.led_first_state)
+        GPIO.output(pin_led_first_floor, self.led_first_state)
         
     def _led_second_update(self):
         # TEST : _led_first_update 실제 작동 테스트
         print(f"[_led_second_update] : 2층 LED를 {self.led_second_state}로 켭니다/끕니다.")
-        GPIO.output(self.pin_led_second_floor, self.led_second_state)        
+        GPIO.output(pin_led_second_floor, self.led_second_state)        
+
+
+if __name__ == '__main__':
+        d = smartFarm_Device()

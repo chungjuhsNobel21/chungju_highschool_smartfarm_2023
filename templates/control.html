@@ -5,6 +5,8 @@
         <title>smartfarm_control</title>
     </head>
     <body>
+    <!-- TODO(동우) : Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기 -->
+    <!-- TODO(동우) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기 -->
         <form action="/control/set_temp" method = "post">
             <h2>온도</h2>
             <p>최저온도<input type="number" name="temp"></p>

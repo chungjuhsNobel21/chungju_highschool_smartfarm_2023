@@ -19,8 +19,9 @@
         // "first_light_state" : (1층 불상태 ('ON'/'OFF')),
         // "second_light_state" : (2층 불상태),
         //"heater_state" : (히터 상태 ('ON'/'OFF')) }
-        // TODO : onDocumentReady(창이 맨처음 열렀을때)
-
+        // TODO(성민): 전등, 히터, 상태 보여줘야할 것 보여주기
+        // TODO (성민) : 버튼 만들어서 /control 로 리디렉션하도록 GET 요청 보내기
+        // TODO (성민) : 버튼 만들어서 /streaming 로 리디렉션하도록 GET 요청 보내기
         function addData(temperature) {
             line-Chart.data.datasets.forEach((dataset) => {
                 dataset.data.shift();
@@ -40,7 +41,7 @@
             data: {
                 labels: [10,20,30,40,50,60],
                 datasets: [{ 
-                    data: [{{initial_temperatures}}],
+                    data: [{{inital_temperatures}}],
                     label: "온도",
                     borderColor: "#3e95cd",
                     fill: false
@@ -78,7 +79,7 @@
             data: {
                 labels: [10,20,30,40,50,60],
                 datasets: [{ 
-                    data: [{initial_water_levels}],
+                    data: [{inital_heights}],
                     label: "물의 높이",
                     borderColor: "#8e5ea2",
                     fill: false
@@ -114,7 +115,7 @@
             data: {
                 labels: [10,20,30,40,50,60],
                 datasets: [{ 
-                    data: [{initial_humidities}],
+                    data: [{inital_humidities}],
                     label: "습도",
                     borderColor: "#3cba9f",
                     fill: false
