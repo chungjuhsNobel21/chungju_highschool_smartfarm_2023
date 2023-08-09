@@ -60,9 +60,9 @@ class smartFarm_Device:
         self.start_device()
         
 
-    def check_state_integrity(state):
+    def check_state_integrity(self, state):
         '''state가 허용된 값인 GPIO.HIGH 혹은 GPIO.LOW 둘 중 하나의 값인지 무결성을 검증하는 함수'''
-        if state != GPIO.OUT or state != GPIO.IN :
+        if state != GPIO.HIGH or state != GPIO.LOW :
             raise Exception(f'state로 허용되지 않은 값 {state}가 주어졌습니다!')
         else :
             return
