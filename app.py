@@ -64,6 +64,7 @@ class FlaskAppWrapper():
         self.app.add_url_rule('/control/set_temp', 'set_temp', self.set_temp, methods=['POST'])
         self.app.add_url_rule('/control/set_time_period', 'set_time_period', self.set_time_period, methods=['POST'])
         self.app.add_url_rule('/streaming', 'streaming', self.streaming, methods=['GET'])
+        self.app.add_url_rule('/streaming/update_image', 'update_image', self.update_image, methods=['GET'])
 
     # TODO (기훈) : background_task 실제 서버 운영 스레드와 함께 정상 작동하도록 스레드 흐름 고치기
     def background_task(self):
@@ -113,7 +114,8 @@ class FlaskAppWrapper():
             return redirect('stats')
         else :
             return redirect(request.referrer)
-        
+
+    # TODO(정우) : 히터 상태, 1/2층 불 상태도 화면에 표시하도록 하기
     def stats(self):
         # 초기 그래프를 그릴 데이터들을 가져옴
         recent_datas = self.datas[-6:-1]    # 최근 6개 데이터
@@ -160,8 +162,7 @@ class FlaskAppWrapper():
     # TODO (동우) : 버튼을 눌렀을때만 이미지를 얻어와 사용자의 웹사이트에 표시하는것이 아닌, 알아서 실시간으로 서버에서 웹사이트로 식물 사진을 보내줘 화면에 띄우도록 하기
     def streaming(self):
         return render_template('streaming.html')
-
-    @socketio.on('updateImage')
+        
     def update_image(self):
         print("[app.update_image 실행됨]")
         img_arr = self.smartfarm.get_image()
