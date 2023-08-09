@@ -8,7 +8,7 @@ import time
 import board
 import busio
 from datetime import datetime
-#import picamera
+import picamera
 
 
 # 핀 배치들을 변수로 저장해둠
@@ -312,7 +312,7 @@ class smartFarm_Device:
     def get_image(self):
         # 사진(png) 찍고 저장?
         print("[hardware.get_image() 실행됨]")
-        smf_camera = picamera.Picamera()
+        smf_camera = picamera.PiCamera()
         photo_width = 600
         photo_height = 600
 
@@ -321,7 +321,11 @@ class smartFarm_Device:
 
         smf_photo_arr = np.empty((photo_height,photo_width), dtype =np.unit8)
         smf_camera.capture(smf_photo_arr,format='grey')
-        smf_camera.close()  
+        smf_camera.close()
+
+        img = Image.fromarray(img_arr, "RGB")
+        image_filename = "last_taken_picture_jpeg"
+        img.save(image_filename)
         
         return smf_photo_arr
 
