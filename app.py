@@ -22,7 +22,10 @@ class FlaskAppWrapper():
         self.app = app
         self.smartfarm = smartFarm_Device()
         self.socketio = socket
-        
+
+
+        # TODO (정수) : authentication 기능 구현하여 로그인창 제외 다른 창에 로그인 못한 사용자가 접근 못하도록 막기
+        #               만약 로그인 안한 사용자가 접근 불가능한 다른 창에 접근하려고 하면 not_login.html 반환하기 
         # 사용자 로그인 성공 여부
         self.authenticated = False
         # pickle로부터 데이터 가져오기
@@ -40,9 +43,6 @@ class FlaskAppWrapper():
 
         # 라우팅
         self.setup_route()
-
-        # socket 이벤트와 함수 매칭 예시
-        self.socketio.on_event("updateImage", self.update_image)
         
         # background_thread 시작함
         # TODO : start_background_task 작동하는지 확인
@@ -65,6 +65,7 @@ class FlaskAppWrapper():
         self.app.add_url_rule('/control/set_time_period', 'set_time_period', self.set_time_period, methods=['POST'])
         self.app.add_url_rule('/streaming', 'streaming', self.streaming, methods=['GET'])
 
+    # TODO (기훈) : background_task 실제 서버 운영 스레드와 함께 정상 작동하도록 스레드 흐름 고치기
     def background_task(self):
         # 스마트팜으로부터 데이터를 읽어옴
         print("[app.background_task() 실행됨]")
@@ -127,7 +128,7 @@ class FlaskAppWrapper():
                                initial_humidities = initial_humidities)
 
     def control(self):
-        #  TODO(동우) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
+        #  TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
         return render_template('control.html')
     
     def set_temp(self):
@@ -138,7 +139,7 @@ class FlaskAppWrapper():
             self.smartfarm.set_min_temp(temp)
             return redirect(request.referrer)
         except ValueError as e :
-            # TODO(동우) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
+            # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
             pass
         
     def set_time_period(self):
@@ -153,9 +154,10 @@ class FlaskAppWrapper():
             self.smartfarm.set_on_time(on_time)
             self.smartfarm.set_off_time(off_time)
         except ValueError as e :
-            # TODO(동우) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
+            # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
             pass
-        
+
+    # TODO (동우) : 버튼을 눌렀을때만 이미지를 얻어와 사용자의 웹사이트에 표시하는것이 아닌, 알아서 실시간으로 서버에서 웹사이트로 식물 사진을 보내줘 화면에 띄우도록 하기
     def streaming(self):
         return render_template('streaming.html')
 
