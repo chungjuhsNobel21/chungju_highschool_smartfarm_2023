@@ -8,16 +8,25 @@
     <!-- TODO(태현) : Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기 -->
     <!-- TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기 -->
         <form action="/control/set_temp" method = "post">
+            <label for="New_Temp_Reference"></label>
             <h2>온도</h2>
-            <p>최저온도<input type="number" name="temp"></p>
+            <p>최저온도<input type="number" id="New_Temp_Reference"name="New_Temp_Reference"></p>
             <input type="submit">
         </form>
         <form action="/control/set_time_period" method = "post">
+            <label for="New_Turn_On_Time_Reference"></label>
+            <label for="New_Turn_Off_Time_Reference"></label>
             <h2>시간</h2>
-            <p>불을 키는 시간<input type="time" name="turn_on_time"></p>
-            <p>불을 꺼는 시간<input type="time" name="turn_off_time"></p>
+            <p>불을 키는 시간<input type="time" id="New_Turn_On_Time_Reference"name="New_Turn_On_Time_Reference"></p>
+            <p>불을 꺼는 시간<input type="time" id="New_Turn_Off_Time_Reference"name="New_Turn_Off_Time_Reference"></p>
             <input type="submit">
         </form>
+    <!--위에가 동우가 짠 기본값 설정-->
+        
+        <h2>목표온도/현재온도 : {{reference_staus.temperature}} / {{cur_status.temperature}}</h2>
+        <!--아래는 아마 이 양식 그대로 쭉 쓸거같음. 제대로 작동되는지 테스트해보고 알려주면 다 작성해서 다시 올릴께-->
+        
+        
     </body>
     
 </html>
