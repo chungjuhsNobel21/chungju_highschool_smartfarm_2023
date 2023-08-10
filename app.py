@@ -134,13 +134,13 @@ class FlaskAppWrapper():
         #  TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
         # 위쪽의 background_task 함수에서 값을 얻어오고 딕셔너리 안에 넣어서 넘겨줘야함, 변수명 이래 직접써도 될라나모르겄다
         cur_status ={
-            "cur_temperature" =temperature
-            "cur_humidity" =humidity
-            "cur_water_level" = water_level
-            "cur_first_light_state" =first_light_state
-            "cur_second_light_state" = second_light_state
-            "cur_heater_state" =heater_state 
-            "cur_pump_state"=pump_state 
+            "cur_temperature" =self.smartfarm.get_temperature()
+            "cur_humidity" =self.smartfarm.get_humidity()
+            "cur_water_level" = self.smartfarm.get_water_level() 
+            "cur_first_light_state" =self.smartfarm.get_light_state()
+            "cur_second_light_state" = self.smartfarm.get_light_state()
+            "cur_heater_state" =self.smartfarm.get_heater_state() 
+            "cur_pump_state"=self.smartfarm.get_pump_state() 
         }
         reference_status={
             #control.html에서 값이 초기화되는 set_temp,set_time_period에서 값을 얻어와야할듯함
