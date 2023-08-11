@@ -140,9 +140,37 @@ class FlaskAppWrapper():
                                initial_heights = initial_water_levels,
                                initial_humidities = initial_humidities)
 
+    
     def control(self):
         #  TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
-        return render_template('control.html')
+        # 위쪽의 background_task 함수에서 값을 얻어오고 딕셔너리 안에 넣어서 넘겨줘야함, 변수명 이래 직접써도 될라나모르겄다
+        cur_status ={
+            
+            cur_temperature =self.smartfarm.get_temperature()
+            cur_humidity =self.smartfarm.get_humidity()
+            cur_water_level = self.smartfarm.get_water_level() 
+            cur_first_light_state =self.smartfarm.get_light_state()
+            cur_second_light_state = self.smartfarm.get_light_state()
+            cur_heater_state =self.smartfarm.get_heater_state() 
+            cur_pump_state=self.smartfarm.get_pump_state() 
+        }
+        reference_status={
+            #control.html에서 값이 초기화되는 set_temp,set_time_period에서 값을 얻어와야할듯함
+            #control.html을 처음 실행하면 초기 제공 설정값으로 나타내고 두번째 실행부터 입력했던 값으로 나타내게 될듯?(김태현 주석)
+            ref_temperature =18
+            
+            ref_turn_on_time=NULL;
+            ref_turn_off_time=NULL;
+            
+            #이하 생략
+        }
+        if request.method =='POST'
+            ref_temperature = request.form.get('new_reference_temp')
+            ref_turn_on_time = request.form.get('new_turn_on_time_reference')
+            ref_turn_off_time =request.form.get('new_turn_off_time_reference')
+            
+            
+        return render_template('control.html',cur_value=cur_status,refernce_value=refernce_status)
     
     def set_temp(self):
         _temp = request.form['temp']
@@ -153,6 +181,7 @@ class FlaskAppWrapper():
             return redirect(request.referrer)
         except ValueError as e :
             # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
+            print("허용되지 않은 입력이 존재합니다")
             pass
         
     def set_time_period(self):
@@ -168,6 +197,7 @@ class FlaskAppWrapper():
             self.smartfarm.set_off_time(off_time)
         except ValueError as e :
             # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
+            print("허용되지 않은 입력이 존재합니다")
             pass
 
     # TODO (동우) : 버튼을 눌렀을때만 이미지를 얻어와 사용자의 웹사이트에 표시하는것이 아닌, 알아서 실시간으로 서버에서 웹사이트로 식물 사진을 보내줘 화면에 띄우도록 하기
