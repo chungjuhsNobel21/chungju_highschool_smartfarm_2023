@@ -4,30 +4,33 @@ from hardware import smartFarm_Device
 from datetime import datetime
 from time import strftime
 import pickle
+import time
 from PIL import Image
 import numpy as np
+import RPi.GPIO as GPIO
 
 app = Flask(__name__)
 socketio = SocketIO(app)
 
 
 def convert_state(i):
-    if i == "GPIO.HIGH":
+    if i == GPIO.HIGH:
         return "ON"
-    elif i == "GPIO.LOW" :
+    elif i == GPIO.LOW :
         return "OFF"
+    else:
+        return i
 
 class FlaskAppWrapper():
     def __init__(self, app, socket):
         self.app = app
         self.smartfarm = smartFarm_Device()
-        self.socketio = socket
-
 
         # TODO (정수) : authentication 기능 구현하여 로그인창 제외 다른 창에 로그인 못한 사용자가 접근 못하도록 막기
         #               만약 로그인 안한 사용자가 접근 불가능한 다른 창에 접근하려고 하면 not_login.html 반환하기 
         # 사용자 로그인 성공 여부
-        self.authenticated = False
+        # TODO: 배포시 False로 바꾸기
+        self.authenticated = True
         # pickle로부터 데이터 가져오기
         # 읽기모드는 append, byte형 (pickle은 byte형으로 저장한다는게 중요함)
         ## self.datas의 구조
@@ -46,7 +49,7 @@ class FlaskAppWrapper():
         
         # background_thread 시작함
         # TODO : start_background_task 작동하는지 확인
-        background_thread = self.socketio.start_background_task(self.background_task)
+        background_thread = socketio.start_background_task(self.background_task)
 
     def setup_route(self):
         '''
@@ -68,39 +71,44 @@ class FlaskAppWrapper():
 
     # TODO (기훈) : background_task 실제 서버 운영 스레드와 함께 정상 작동하도록 스레드 흐름 고치기
     def background_task(self):
-        # 스마트팜으로부터 데이터를 읽어옴
-        print("[app.background_task() 실행됨]")
-        temperature = self.smartfarm.get_temperature()
-        humidity = self.smartfarm.get_humidity()
-        water_level = self.smartfarm.get_water_level() 
-        first_light_state, second_light_state = self.smartfarm.get_light_state()
-        heater_state = self.smartfarm.get_heater_state()
-        pump_state = self.smartfarm.get_pump_state()
-
-        name = ["humidity","temperature", "water_level", "first_light_state", "second_light_state", "heater_state", "pump_state"]
-        a = list(map(convert_state, [humidity,temperature, water_level, first_light_state, second_light_state, heater_state, pump_state]))
-        data_dict = dict(zip(name, a))
-
-        # 만약 사용자가 인증되어있으면 give_data 이벤트 이름으로 data_json을 보냄
-        # give_data 이벤트 이름으로 보낸 data_json 데이터는 stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것임
-        if self.authenticated == True :
-            with self.app.app_context() as context :
-                data_json = jsonify(data_dict)
-                self.socketio.emit('give_data', data_json)
-
-        # self.datas에 저장할 data에는 timestamp 추가함
-        now = datetime.now()
-        now_str = now.strftime("%Y.%m.%d %H:%M:%S")
-        data_dict['timestamp'] = now_str
-        self.datas.append(data_dict)
-    
-        
-        # TODO : time 종료
-        # TODO : 30초 빼기 남은 측정시간만큼 기다리기
-
-    def run(self):
-        self.socketio.run(self.app)
-
+        while True:
+            print("[app.background_task() 실행됨]")
+            start_time = time.time()
+            # 스마트팜 측정 후 데이터 얻음
+            self.smartfarm.measure_temp_and_humidity()
+            self.smartfarm.measure_water_level()
+            temperature = self.smartfarm.get_temperature()
+            humidity = self.smartfarm.get_humidity()
+            water_level = self.smartfarm.get_water_level() 
+            first_light_state, second_light_state = self.smartfarm.get_light_state()
+            heater_state = self.smartfarm.get_heater_state()
+            pump_state = self.smartfarm.get_pump_state()
+            
+            now = datetime.now()
+            now_str = now.strftime("%Y.%m.%d %H:%M:%S")
+            
+            name = ["timestamp","humidity","temperature", "water_level", "first_light_state", "second_light_state", "heater_state", "pump_state"]
+            a = list(map(convert_state, [now_str, humidity,temperature, water_level, first_light_state, second_light_state, heater_state, pump_state]))
+            # emit할 dict
+            data_dict = dict(zip(name, a))
+            self.datas.append(data_dict)
+            
+            # 이전 emit으로부터 30초가 흐를때까지 기다린 후 다음 emit을 진행함
+            # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep
+            end_time = time.time()
+            if 30 - (end_time - start_time) > 0 :
+                print(f"[background_task] : {30 - (end_time - start_time)} 만큼 기다립니다.")
+                socketio.sleep(30 - (end_time - start_time))
+            
+            # 만약 사용자가 인증되어있으면 give_data 이벤트 이름으로 data_dict 보냄
+            # give_data 이벤트 이름으로 보낸 data_dict 데이터는 stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것임
+            if self.authenticated == True :
+                with self.app.app_context() as context :                
+                    
+                    # socketio.emit 함수를 사용할때는 jsonify()를 사용하지 말고 그냥 딕셔너리 형태의 데이터를 주어야 함! 
+                    # https://stackoverflow.com/questions/75004494/typeerror-object-of-type-response-is-not-json-serializable-2
+                    socketio.emit('give_data', data_dict)
+            
     def index(self):
         return render_template('index.html')
 
@@ -118,15 +126,18 @@ class FlaskAppWrapper():
     # TODO(정우) : 히터 상태, 1/2층 불 상태도 화면에 표시하도록 하기
     def stats(self):
         # 초기 그래프를 그릴 데이터들을 가져옴
-        recent_datas = self.datas[-6:-1]    # 최근 6개 데이터
-        inital_temperatures = [data['temperature'] for data in recent_datas]
+        recent_datas = self.datas[-7:-1]    # 최근 6개 데이터
+        initial_temperatures = [data['temperature'] for data in recent_datas]
         initial_water_levels = [data['water_level'] for data in recent_datas]
         initial_humidities = [data['humidity'] for data in recent_datas]
+        print(f"[stats] initial_temperatures :{initial_temperatures}")
+        print(f"[stats] initial_water_levels :{initial_water_levels}")
+        print(f"[stats] initial_humidities :{initial_humidities}")
         # 맨 처음 stats.html을 서버에서 보내줄 때 초기 그래프에 표시될 데이터를 같이 주면
         # stats.html 자바스크립트 부분 초기 데이터 템플릿에 들어감
         return render_template('stats.html',
-                               inital_temperatures=inital_temperatures,
-                               initial_water_levels = initial_water_levels,
+                               initial_temperatures=initial_temperatures,
+                               initial_heights = initial_water_levels,
                                initial_humidities = initial_humidities)
 
     
@@ -204,4 +215,4 @@ class FlaskAppWrapper():
 
 if __name__ == '__main__':
     app_wrapper = FlaskAppWrapper(app, socketio)
-    app_wrapper.run()
+    socketio.run(app)

@@ -3,6 +3,7 @@
 <head>
     <title>Show The Graph</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js" ></script>
     <style>
         #line-chart {
             width: 300px;
@@ -12,8 +13,13 @@
 </head>
 <body>
     <h2>Temparture Graph</h2>
-    <canvas id="line-chart"></canvas>
+    <canvas id="lineChart1"></canvas>
+    <h2>Water Height Graph</h2>
+    <canvas id="lineChart2"></canvas>
+    <h2>Humidity</h2>
+    <canvas id="lineChart3"></canvas>
     <script>
+        var socket = io();
         // data = {"temperature" : (온도), 
         // "humidity" : (습도), "water_level" : (수위),
         // "first_light_state" : (1층 불상태 ('ON'/'OFF')),
@@ -22,26 +28,14 @@
         // TODO(정우): 전등, 히터, 상태 보여줘야할 것 보여주기
         // TODO (정우) : 버튼 만들어서 /control 로 리디렉션하도록 GET 요청 보내기
         // TODO (정우) : 버튼 만들어서 /streaming 로 리디렉션하도록 GET 요청 보내기
-        function addData(temperature) {
-            line-Chart.data.datasets.forEach((dataset) => {
-                dataset.data.shift();
-                dataset.data.push(temperature);
-            });
-            line-chart.update();
-        }
-    
-        socket.on("give_data", function(msg){
-            console.log("Resceived temperature::"+msg.temperature);
-            addData(msg.temperature)
-        });
 
-        var ctx = document.getElementById("line-chart").getContext('2d');
-        var lineChart = new Chart(ctx, {
+	var ctx1 = document.getElementById("lineChart1").getContext('2d');
+        var lineChart1 = new Chart(ctx1, {
             type: 'line',
             data: {
                 labels: [10,20,30,40,50,60],
                 datasets: [{ 
-                    data: [{{inital_temperatures}}],
+                    data: {{initial_temperatures}},
                     label: "온도",
                     borderColor: "#3e95cd",
                     fill: false
@@ -54,32 +48,14 @@
                 }
             }
         });
-    </script>
 
-    <h3>Water Height Graph</h3>
-    <canvas id="line-chart2"></canvas>
-    <script>
-        
-        function addData(height) {
-            line-Chart.data.datasets.forEach((dataset) => {
-                dataset.data.shift();
-                dataset.data.push(height);
-            });
-            line-chart.update();
-        }
-    
-        socket.on("give_data", function(msg){
-            console.log("Resceived temperature::"+msg.height);
-            addData(msg.height)
-        });
-
-        var ctx = document.getElementById("line-chart2").getContext('2d');
-        var lineChart = new Chart(ctx, {
+	var ctx2 = document.getElementById("lineChart2").getContext('2d');
+        var lineChart2 = new Chart(ctx2, {
             type: 'line',
             data: {
                 labels: [10,20,30,40,50,60],
                 datasets: [{ 
-                    data: [{inital_heights}],
+                    data: {{initial_heights}},
                     label: "물의 높이",
                     borderColor: "#8e5ea2",
                     fill: false
@@ -91,31 +67,15 @@
                     text: 'height'
                 }
             }
-        });
-    </script>
-    <h4>Humidity</h4>
-    <canvas id="line-chart3"></canvas>
-    <script>
-        function addData(humidity) {
-            line-Chart.data.datasets.forEach((dataset) => {
-                dataset.data.shift();
-                dataset.data.push(humidity);
-            });
-            line-chart.update();
-        }
-    
-        socket.on("give_data", function(msg){
-            console.log("Resceived temperature::"+msg.humidity);
-            addData(msg.humidity)
-        });
+        });		
 
-        var ctx = document.getElementById("line-chart3").getContext('2d');
-        var lineChart = new Chart(ctx, {
+	var ctx3 = document.getElementById("lineChart3").getContext('2d');
+        var lineChart3 = new Chart(ctx3, {
             type: 'line',
             data: {
                 labels: [10,20,30,40,50,60],
                 datasets: [{ 
-                    data: [{inital_humidities}],
+                    data: {{initial_humidities}},
                     label: "습도",
                     borderColor: "#3cba9f",
                     fill: false
@@ -128,7 +88,42 @@
                 }
             }
         });
-    </script>
 
+        function addData1(temperature) {
+            lineChart1.data.datasets.forEach((dataset) => {
+                dataset.data.shift();
+                dataset.data.push(temperature);
+            });
+            lineChart1.update();
+        }
+
+	function addData2(height) {
+            lineChart2.data.datasets.forEach((dataset) => {
+                dataset.data.shift();
+                dataset.data.push(height);
+            });
+            lineChart2.update();
+        }
+
+	function addData3(humidity) {
+            lineChart3.data.datasets.forEach((dataset) => {
+                dataset.data.shift();
+                dataset.data.push(humidity);
+            });
+            lineChart3.update();
+        }
+
+	socket.on("give_data", function(msg){
+            console.log("Received timestamp::"+msg.timestamp);
+            console.log("Received temperature::"+msg.temperature);
+            console.log("Received water_level::"+msg.water_level);
+            console.log("Received humidity::"+msg.humidity);
+            addData1(msg.temperature)
+            addData2(msg.water_level)
+            addData3(msg.humidity)
+        });
+	
+
+    </script>
 </body>
 </html>

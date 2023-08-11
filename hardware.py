@@ -1,28 +1,23 @@
 import RPi.GPIO as GPIO
 # pip install Adafruit_DHT로 DHT 온습도센서 사용 모듈을 설치
 import Adafruit_DHT
-
-import adafruit_mcp3xxx.mcp3008 as MCP
-from adafruit_mcp3xxx.analog_in import AnalogIn
+import asyncio
+import spidev
 import time
-import board
-import busio
 from datetime import datetime
 import picamera
-
+from PIL import Image
+from io import BytesIO
+import board
 
 # 핀 배치들을 변수로 저장해둠
 pin_led_first_floor = 26
 pin_led_second_floor = 19
 pin_heater = 13
 pin_pump = 6
-pin_water_level_sensor = 5
-pin_ph_sensor = 23
 
-pin_dht_1 = 21
-pin_dht_2 = 20
-pin_dht_3 = 16
-pin_dht_4 = 12
+
+pin_dhts = [21,20,16,12] # [0] ; 21로 나중에 바꾸기
 
 
 # 스마트팜 하드웨어와 소통하는 클래스를 정의
@@ -51,6 +46,15 @@ class smartFarm_Device:
         self.temperature = 0
         self.humidity = 0
         self.water_level = 0
+
+        # spi 기본 설정
+        self.spi = spidev.SpiDev()
+        self.spi.open(0, 0)
+        self.spi.max_speed_hz = 1000000
+
+        #  카메라 관련
+        self.camera = picamera.PiCamera()
+        self.stream = BytesIO()
         
         # 사용자의 설정값
         self.user_set_min_temp = user_set_min_temp
@@ -60,9 +64,9 @@ class smartFarm_Device:
         self.start_device()
         
 
-    def check_state_integrity(state):
+    def check_state_integrity(self, state):
         '''state가 허용된 값인 GPIO.HIGH 혹은 GPIO.LOW 둘 중 하나의 값인지 무결성을 검증하는 함수'''
-        if state != GPIO.OUT or state != GPIO.IN :
+        if state != GPIO.HIGH and state != GPIO.LOW :
             raise Exception(f'state로 허용되지 않은 값 {state}가 주어졌습니다!')
         else :
             return
@@ -78,14 +82,11 @@ class smartFarm_Device:
         GPIO.setup(pin_led_first_floor, GPIO.OUT)
         GPIO.setup(pin_led_second_floor, GPIO.OUT)
         GPIO.setup(pin_heater, GPIO.OUT)
-        GPIO.setup(pin_ph_sensor, GPIO.IN)
         GPIO.setup(pin_pump, GPIO.OUT)
-        GPIO.setup(pin_water_level_sensor, GPIO.IN)
-        GPIO.setup(pin_dht_1, GPIO.IN)
-        GPIO.setup(pin_dht_2, GPIO.IN)
-        GPIO.setup(pin_dht_3, GPIO.IN)
-        GPIO.setup(pin_dht_4, GPIO.IN)
-
+        # 예시코드들에서 온습도센서핀은 GPIO 설정 안해주는것 같음
+        # for pin in pin_dhts:
+        #     GPIO.setup(pin, GPIO.IN)
+        
         # 출력 핀들의 초기 출력모드 설정
         self.led_first_state = GPIO.HIGH
         self.led_second_state = GPIO.HIGH
@@ -97,26 +98,6 @@ class smartFarm_Device:
         self._led_first_update()
         self._led_second_update()
         self._pump_update()
-
-        # TODO : dht 관련 문제들 해결 - 이 줄에서 센서 객체들이 인스턴스화가 안됨! ㅅㅂ
-        # # 센서 4개의 객체들을 private하게 인스턴스화
-        # self._dht_sensor_1 = Adafruit_DHT.DHT11(pin_dht_1)
-        # self._dht_sensor_2 = Adafruit_DHT.DHT11(pin_dht_2)
-        # self._dht_sensor_3 = Adafruit_DHT.DHT11(pin_dht_3)
-        # self._dht_sensor_4 = Adafruit_DHT.DHT11(pin_dht_4)
-
-        # 측정에 사용할 센서들을 모아둔 배열
-        # self._dht_sensors = [self._dht_sensor_1, self._dht_sensor_2, self._dht_sensor_3, self._dht_sensor_4]
-    
-        # TODO : 아날로그 입력 CS 설정 안되는 문제 해결
-        # # MCP3008 모듈의 SPI 통신 설정 - 클럭(11)과 MISO(9), MOSI(10) 단자 모두 보드에 정해진 것을 따름
-        # spi = busio.SPI(clock=board.SCK, MISO=board.MISO, MOSI=board.MOSI)
-        # # MCP3008 객체 생성
-        # mcp = MCP.MCP3008(spi)
-        # # 아날로그 입력 채널 설정 (0번 핀을 사용하려면 CH0 사용)
-        # self._analog_channel = AnalogIn(mcp, MCP.P0)
-
-
 
     def off_device(self):
         '''펌프를 끄고 장비를 정지함'''
@@ -164,48 +145,62 @@ class smartFarm_Device:
             self._led_second_update()
 
 
-
-
     def measure_temp_and_humidity(self)->None :
         '''
         온도 및 습도 측정해 self.temperature, self.humidity에 저장하는 함수
         '''
         # TEST : measure_temp_and_humidity 실제 작동 테스트
         # TEST : 온습도 측정에서 비동기가 잘 되는지 확인하기
+        print("[hardware.measure_temp_and_humidity() 실행됨]")
         humidities = list()
         temperatures = list()
-        count = 0
-        for i, sensor in enumerate(self._dht_sensors):
-            # 측정 시도
-            try :
-                # 1번 dht sensor의 핀번호가 7번으로 시작하기 때문에 핀번호를 7+i로 함
-                humid, temperature = Adafruit_DHT.read_retry(self._dht_sensors[i], 7+i)
-                humidities[i] = humid
-                temperatures[i] = temperature
-                count += 1
-            # 측정 실패시
-            except RuntimeError as e:
-                print(e.args[0])
+        humid_count = 0
+        temp_count = 0
+        sensor_type = Adafruit_DHT.DHT11
+        for i, sensor in enumerate(pin_dhts[0:1]):
+            print(f" {i+1}번 센서 : ", end='')
+            print()
+            # 측정 시도. 타이밍에 민감한 작업이기 때문에 실패시 2초 기다리고 재측정함. 개당 15까지 측정함
+            humid, temp = Adafruit_DHT.read_retry(sensor_type, pin_dhts[i], retries=15)
+            if humid is not None :
+                humidities.append(humid)
+                humid_count += 1
+                print(f"    humid : {humid:.3f}")
+            else :
+                print(f"    humid : Failed (None)")
+            if temp is not None:
+                temperatures.append(temp)
+                temp_count += 1
+                print(f"    temp : {temp:.3f}")
+            else :
+                print(f"    temp : Failed (None)")
         
         # 측정값이 하나도 없으면
-        if count == 0:
-            raise Exception('온습도센서로 측정한 값이 없습니다!')
-                
-        avg_humid = sum(humidities) / count
-        avg_temp = sum(temperatures) / count
+        if humid_count == 0:
+            print('온습도센서로 측정한 습도값이 없습니다!')
+        else :
+            self.humidity = sum(humidities) / humid_count
         
-        self.humidity = avg_humid
-        self.temperature = avg_temp
-
+        if temp_count == 0:
+            print('온습도센서로 측정한 온도값이 없습니다!')
+        else :
+            self.temperature = sum(temperatures) / temp_count
+            
     def measure_water_level(self)->None :
         '''3층 물통 수위 측정해 self.water_level 값을 갱신하는 함수'''
         # TODO : measure_water_level 아날로그 변환 식 제대로 작성하기
-        raw_value = self._analog_channel_water_level.value
-        voltage = raw_value / 65535.0 * 5.0
-        water_level = voltage/5.0 #상수값은 센서 길이따라 변동
+        print("[hardware.measure_water_level() 실행됨]")
+        adc = self.spi.xfer2([1, (8+ 0) << 4, 0])
+        adc_out = ((adc[1]&3) << 8 ) + adc[2]
+        a_volt = 3.3 * adc_out / 1024
+        print(f"volt : {a_volt}")
+        self.water_level = self.adc_to_water_level(a_volt)
         
-        self.water_level = water_level
-
+    def adc_to_water_level(self, a_volt):
+        '''수위센서에서 읽은 analog volt값을 수위 cm으로 환산하는 함수'''
+        # adc_value 리턴한건 그냥 데이터 반환이 필요해서 한거임
+        return a_volt
+        # TODO(정수) : 수위센서 adc -> cm 환산 함수 실험 및 실측을 통해 근사식 작성하기
 
     def set_pump_state(self, state) :
         '''
@@ -214,9 +209,6 @@ class smartFarm_Device:
          * 허용되지 않은 값이 state로 입력될 경우 예외를 raise함
         -> return None
         '''
-        
-        # TEST : set_pump_state 실제 작동 테스트
-
         # 인자로 주어진 state의 무결성 검증 - 결함 있으면 에러 raise하여 backend단에서 처리하게 함.
         try :
             self.check_state_integrity(state)
@@ -234,8 +226,6 @@ class smartFarm_Device:
          * 허용되지 않은 값이 state로 입력될 경우 예외를 raise함
         -> return None
         '''
-
-        # TEST : set_light_state 실제 작동 테스트
         # state 값 무결성 검증 - 실패시 에러 raise하여 backend에서 처리할 수 있게 함.
         try : 
             self.check_state_integrity(state[0])
@@ -258,8 +248,6 @@ class smartFarm_Device:
 
     def set_heater_state(self, state) :
         '''전체 히터의 상태를 지정하는 함수 (GPIO.HIGH/GPIO.LOW)'''
-
-        # TEST : set_heater_state 실제 작동 테스트
         # 인자로 주어진 state의 무결성 검증 - 결함 있으면 에러 raise하여 backend단에서 처리하게 함.
         try :
             self.check_state_integrity(state)
@@ -290,9 +278,7 @@ class smartFarm_Device:
 
     def get_pump_state(self):
         '''펌프 작동 상태 반환하는 함수 (GPIO.HIGH 혹은 GPIO.LOW)'''
-        # TEST : get_pump_state 실제 작동 테스트
         return self.pump_state
-
 
     def get_water_level(self) -> float:
         return self.water_level
@@ -300,39 +286,30 @@ class smartFarm_Device:
 
     def get_light_state(self)->list :
         '''1층과 2층 LED 전원 상태를 얻어오는 함수 [GPIO.HIGH/GPIO.LOW, GPIO.HIGH/GPIO.LOW]'''
-        # TEST : get_light_state 실제 작동 테스트
         return [self.led_first_state, self.led_second_state]
 
     
     def get_heater_state(self) :
         '''히터의 상태를 반환하는 함수 (GPIO.HIGH 혹은 GPIO.LOW)'''
-        # TEST : get_heater_state 실제 작동 테스트
         return self.heater_state
 
     def get_image(self):
         # 사진(png) 찍고 저장?
         print("[hardware.get_image() 실행됨]")
-        smf_camera = picamera.PiCamera()
+        
         photo_width = 600
         photo_height = 600
-
-        smf_camera.start_preview()
-        time.sleep(2)
-
-        smf_photo_arr = np.empty((photo_height,photo_width), dtype =np.unit8)
-        smf_camera.capture(smf_photo_arr,format='grey')
-        smf_camera.close()
-
-        img = Image.fromarray(img_arr, "RGB")
-        image_filename = "last_taken_picture_jpeg"
+        self.camera.capture(self.stream, format='jpeg')
+        self.stream.seek(0)
+        img = Image.open(self.stream)
+        image_filename = "last_taken_picture.jpeg"
         img.save(image_filename)
         
-        return smf_photo_arr
+        return img
 
 
     def _pump_update(self):
         '''현재 self.pump_state에 맞게 펌프를 끄거나 켜는 함수'''
-        # TEST : _pump_update 실제 작동 테스트
         print(f"[_pump_update] : 펌프를 {self.pump_state}로 켭니다/끕니다.")
         GPIO.output(pin_pump, self.pump_state)
 
@@ -342,12 +319,10 @@ class smartFarm_Device:
         
 
     def _led_first_update(self):
-        # TEST : _led_first_update 실제 작동 테스트
         print(f"[_led_first_update] : 1층 LED를 {self.led_first_state}로 켭니다/끕니다.")
         GPIO.output(pin_led_first_floor, self.led_first_state)
         
     def _led_second_update(self):
-        # TEST : _led_first_update 실제 작동 테스트
         print(f"[_led_second_update] : 2층 LED를 {self.led_second_state}로 켭니다/끕니다.")
         GPIO.output(pin_led_second_floor, self.led_second_state)        
 
