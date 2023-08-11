@@ -9,6 +9,7 @@ import picamera
 from PIL import Image
 from io import BytesIO
 import board
+import base64
 
 # 핀 배치들을 변수로 저장해둠
 pin_led_first_floor = 26
@@ -293,19 +294,25 @@ class smartFarm_Device:
         '''히터의 상태를 반환하는 함수 (GPIO.HIGH 혹은 GPIO.LOW)'''
         return self.heater_state
 
-    def get_image(self):
-        # 사진(png) 찍고 저장?
+    def get_image(self, save_to_file = False):
+        '''
+        사진을 찍어 base64로 인코딩한 데이터를 리턴함.
+        -save_to_file : True로 설정되면 f"./captured_images/datetime.now().strftime('%Y.%m.%d %H:%M:%S').jpeg"로 파일을 저장
+        '''
         print("[hardware.get_image() 실행됨]")
         
         photo_width = 600
         photo_height = 600
         self.camera.capture(self.stream, format='jpeg')
         self.stream.seek(0)
-        img = Image.open(self.stream)
-        image_filename = "last_taken_picture.jpeg"
-        img.save(image_filename)
-        
-        return img
+        if save_to_file == True :
+            with Image.open(self.stream) as img : 
+                image_path = './captured_images/'
+                image_filename = f"{datetime.now().strftime('%Y.%m.%d %H:%M:%S')}.jpeg"
+                img.save(image_path + image_filename)
+        self.stream.seek(0)
+        encoded_image = base64.b64encode(self.stream.getvalue()).decode("utf-8")
+        return encoded_image
 
 
     def _pump_update(self):

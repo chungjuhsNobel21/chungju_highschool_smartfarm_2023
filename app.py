@@ -8,6 +8,7 @@ import time
 from PIL import Image
 import numpy as np
 import RPi.GPIO as GPIO
+import base64
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -50,6 +51,7 @@ class FlaskAppWrapper():
         # background_thread 시작함
         # TODO : start_background_task 작동하는지 확인
         background_thread = socketio.start_background_task(self.background_task)
+        background_streaming_thread = socketio.start_background_task(self.update_image_periodically)
 
     def setup_route(self):
         '''
@@ -67,7 +69,6 @@ class FlaskAppWrapper():
         self.app.add_url_rule('/control/set_temp', 'set_temp', self.set_temp, methods=['POST'])
         self.app.add_url_rule('/control/set_time_period', 'set_time_period', self.set_time_period, methods=['POST'])
         self.app.add_url_rule('/streaming', 'streaming', self.streaming, methods=['GET'])
-        self.app.add_url_rule('/streaming/update_image', 'update_image', self.update_image, methods=['GET'])
 
     # TODO (기훈) : background_task 실제 서버 운영 스레드와 함께 정상 작동하도록 스레드 흐름 고치기
     def background_task(self):
@@ -99,7 +100,7 @@ class FlaskAppWrapper():
             if 30 - (end_time - start_time) > 0 :
                 print(f"[background_task] : {30 - (end_time - start_time)} 만큼 기다립니다.")
                 socketio.sleep(30 - (end_time - start_time))
-            
+        
             # 만약 사용자가 인증되어있으면 give_data 이벤트 이름으로 data_dict 보냄
             # give_data 이벤트 이름으로 보낸 data_dict 데이터는 stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것임
             if self.authenticated == True :
@@ -170,17 +171,26 @@ class FlaskAppWrapper():
             # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
             pass
 
-    # TODO (동우) : 버튼을 눌렀을때만 이미지를 얻어와 사용자의 웹사이트에 표시하는것이 아닌, 알아서 실시간으로 서버에서 웹사이트로 식물 사진을 보내줘 화면에 띄우도록 하기
     def streaming(self):
         return render_template('streaming.html')
-        
-    def update_image(self):
-        print("[app.update_image 실행됨]")
-        img_arr = self.smartfarm.get_image()
-        img = Image.fromarray(img_arr, "RGB")
-        image_filename = "last_taken_picture.jpeg"
-        img.save(image_filename)
-        return render_template('streaming.html', source='../' +image_filename)
+
+    def update_image_periodically(self):
+        last_saved_time = time.time()
+        last_emit_time = time.time()
+        while True:
+            print("[update_image_periodically 실행됨]")
+            current_time = time.time()
+            # 사진을 파일로 저장하는 주기는 30초로하고, 30초 이전에는 저장 없이 스트림에서 byte64로 이미지만 가져옴
+            if current_time - last_saved_time >= 30:
+                encoded_image = self.smartfarm.get_image(save_to_file=True)
+            else :
+                encoded_image = self.smartfarm.get_image(save_to_file=False)
+            # 사진을 보낸 시간이 0.1초가 안지났으면 0.1초가 될때까지 기다림
+            if (current_time - last_emit_time) < 0.1 :
+                socketio.sleep(0.1 - (current_time - last_emit_time))
+                last_emit_time = current_time
+
+            socketio.emit("give_image", {"encoded_image": encoded_image}, broadcast=True)
 
 
 if __name__ == '__main__':
