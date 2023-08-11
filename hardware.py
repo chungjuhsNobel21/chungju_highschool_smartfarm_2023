@@ -125,7 +125,6 @@ class smartFarm_Device:
         GPIO.cleanup()  # GPIO 초기화
 
     def adjust(self):
-
         # 온도 조절
         if self.temperature < self.set_min_temperature:
             self._heater_update(GPIO.HIGH)
@@ -134,7 +133,8 @@ class smartFarm_Device:
 
         now = datetime.now().time()
 
-        if self.on_time <= now < self.off_time:
+        # TODO (정우) : adjust함수에서 시각 비교시 off_time이 on_time 보다 빠를 경우에 처리
+        if self.on_time <= now and now < self.off_time:
             self.led_first_state = GPIO.HIGH
             self.led_first_state = GPIO.LOW
             self._led_first_update()
@@ -263,11 +263,11 @@ class smartFarm_Device:
         print(f"[hardware.set_min_temp] : 설정 최저 온도를 {_min_temp}로 설정합니다")
         self.min_temp = _min_temp
   
-    def set_on_time(self, _on_time):
+    def set_on_time(self, _on_time:datetime):
         print(f"[hardware.set_on_time] : 전등을 킬 시각을 {_on_time}로 설정합니다")
         self.on_time = _on_time
   
-    def set_off_time(self, _off_time):
+    def set_off_time(self, _off_time:datetime):
         print(f"[hardware.set_off_time] : 전등을 끌 시각을 {_off_time}로 설정합니다")
         self.off_time = _off_time
 

@@ -23,7 +23,7 @@ def convert_state(i):
         return i
 
 class FlaskAppWrapper():
-    def __init__(self, app, socket):
+    def __init__(self, app, datas, reference_status, data_pickle_file_stream, setting_pickle_file_stream):
         self.app = app
         self.smartfarm = smartFarm_Device()
 
@@ -32,19 +32,11 @@ class FlaskAppWrapper():
         # 사용자 로그인 성공 여부
         # TODO: 배포시 False로 바꾸기
         self.authenticated = True
-        # pickle로부터 데이터 가져오기
-        # 읽기모드는 append, byte형 (pickle은 byte형으로 저장한다는게 중요함)
-        ## self.datas의 구조
-        # 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
-        # "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
-        # self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
-        with open('measure_data_pickle', 'rb') as pickle_file:
-            try :
-                self.datas = pickle.load(pickle_file)
-            except EOFError as e :
-                print("[app.__init__()] : 불러올 pickle 데이터가 없음")
-                self.datas = list()
 
+        
+        self.data_pickle_file_stream = data_pickle_file_stream
+        self.setting_pickle_file_stream = setting_pickle_file_stream
+        
         # 라우팅
         self.setup_route()
         
@@ -140,66 +132,58 @@ class FlaskAppWrapper():
                                initial_temperatures=initial_temperatures,
                                initial_heights = initial_water_levels,
                                initial_humidities = initial_humidities)
-
     
     def control(self):
         #  TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
         # 위쪽의 background_task 함수에서 값을 얻어오고 딕셔너리 안에 넣어서 넘겨줘야함, 변수명 이래 직접써도 될라나모르겄다
         cur_status ={
-            
-            cur_temperature =self.smartfarm.get_temperature()
-            cur_humidity =self.smartfarm.get_humidity()
-            cur_water_level = self.smartfarm.get_water_level() 
-            cur_first_light_state =self.smartfarm.get_light_state()
-            cur_second_light_state = self.smartfarm.get_light_state()
-            cur_heater_state =self.smartfarm.get_heater_state() 
-            cur_pump_state=self.smartfarm.get_pump_state() 
+            'cur_temperature':self.smartfarm.get_temperature() or 26,
+            'cur_humidity':self.smartfarm.get_humidity(),
+            'cur_water_level':self.smartfarm.get_water_level() ,
+            'cur_first_light_state' : self.smartfarm.get_light_state()[0],
+            'cur_second_light_state':self.smartfarm.get_light_state()[1],
+            'cur_heater_state' :self.smartfarm.get_heater_state(),
+            'cur_pump_state':self.smartfarm.get_pump_state(),
         }
-        reference_status={
-            #control.html에서 값이 초기화되는 set_temp,set_time_period에서 값을 얻어와야할듯함
-            #control.html을 처음 실행하면 초기 제공 설정값으로 나타내고 두번째 실행부터 입력했던 값으로 나타내게 될듯?(김태현 주석)
-            ref_temperature =18
-            
-            ref_turn_on_time=NULL;
-            ref_turn_off_time=NULL;
-            
-            #이하 생략
-        }
-        if request.method =='POST'
-            ref_temperature = request.form.get('new_reference_temp')
-            ref_turn_on_time = request.form.get('new_turn_on_time_reference')
-            ref_turn_off_time =request.form.get('new_turn_off_time_reference')
-            
-            
-        return render_template('control.html',cur_value=cur_status,refernce_value=refernce_status)
+
+        print(f"cur_status : {cur_status}")
+        print(f"self.reference_status : {self.reference_status}")
+        return render_template('control.html',code=True, cur_status=cur_status, reference_status=self.reference_status)
+    
     
     def set_temp(self):
-        _temp = request.form['temp']
+        _temp = request.form.get('new_temp_reference')
         print(f"[app.set_temp()] : _temp : {_temp} (type : {type(_temp)})")
         try :
             temp = float(_temp)
             self.smartfarm.set_min_temp(temp)
+            # TODO(코드클리닝) : 태현이 변수 리네임하면서 코드 클리닝 ㄱㄱ
+            self.reference_status['ref_temperature'] = temp
             return redirect(request.referrer)
         except ValueError as e :
             # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
-            print("허용되지 않은 입력이 존재합니다")
-            pass
+            print("[app.set_temp] 허용되지 않은 입력이 존재합니다.")
+            return redirect(request.referrer, code=False)
         
-    def set_time_period(self):
-        _on_time = request.form['turn_on_time']
-        _off_time = request.form['turn_off_time']
-        print(f"[app.set_time_period] : _on_time : {_on_time} ({type(_on_type)})")
-        print(f"[app.set_time_period] : _off_time : {_off_time} ({type(_off_type)})")
+    def set_time_period(self):     
+        _on_time = request.form['new_turn_on_time_reference']
+        _off_time = request.form['new_turn_off_time_reference']
+        print(f"[app.set_time_period] : _on_time : {_on_time} ({type(_on_time)})")
+        print(f"[app.set_time_period] : _off_time : {_off_time} ({type(_off_time)})")
             
         try :
-            on_time = strptime(_on_time, '%Y.%m.%d %H:%M:%S')
-            off_time = strptime(_off_time, '%Y.%m.%d %H:%M:%S')
+            # smartfarm에는 datetime.datetime 형으로 넘겨줘야해서 형변환 시켜줌
+            on_time = time.strptime(_on_time, '%H:%M')
+            off_time = time.strptime(_off_time, '%H:%M')
             self.smartfarm.set_on_time(on_time)
             self.smartfarm.set_off_time(off_time)
+            self.reference_status['ref_turn_on_time'] = _on_time
+            self.reference_status['ref_turn_off_time'] = _off_time
+            return redirect('/control')
         except ValueError as e :
             # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
-            print("허용되지 않은 입력이 존재합니다")
-            pass
+            print("[app.time_period] 허용되지 않은 입력이 존재합니다.")
+            return redirect('/control', code=False)
 
     def streaming(self):
         return render_template('streaming.html')
@@ -224,5 +208,37 @@ class FlaskAppWrapper():
 
 
 if __name__ == '__main__':
-    app_wrapper = FlaskAppWrapper(app, socketio)
-    socketio.run(app)
+    # pickle로부터 측정값 가져오기
+    
+    # 읽기모드는 append, byte형 (pickle은 byte형으로 저장한다는게 중요함)
+    ## self.datas의 구조
+    # 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
+    # "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
+    # self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
+    with open('measure_data_pickle', 'rb') as pickle_file:
+        try :
+            datas = pickle.load(pickle_file)
+        except EOFError as e :
+            print("불러올 pickle 측정값 데이터가 없음")
+            datas = list()
+    
+    #pickle로부터 설정값 가져오기
+    
+    # TODO(코드클리닝)- 확장자
+    ## self.last_setting의 구조
+    # {'ref_temperature' : (설정된 최저온도 값), 'ref_turn_on_time' :(설정된 켤 시각 "07:11:09"와 같은 문자열), 'ref_turn_off_time' :(설정된 끌 시각)}
+    with open('setting_data_pickle.pickle', 'rb') as pickle_file:
+        try :
+            reference_status = pickle.load(pickle_file)
+        except EOFError as e :
+            print("불러올 pickle 설정값 데이터가 없음")
+            # 불러올 유저 세팅값이 없으면 기본 세팅값을 맞춤
+            reference_status = {'ref_temperature' : 19,
+                                 'ref_turn_on_time' :"06:00:00",
+                                 'ref_turn_off_time' :"18:00:00"}
+            
+    # 웹서버가 파일을 적기 위한 파일 스트림을 연결하고 객체에 전달하고 실행함.
+    # with 구문을 사용했기 때문에 서버가 종료되면 자동으로 파일이 닫히고 저장됨
+    with open('measure_data_pickle.pickle', 'ab'), open('setting_data_pickle.pickle', 'ab') as data_pickle_file_stream, setting_pickle_file_stream:        
+        app_wrapper = FlaskAppWrapper(app, datas, reference_status, data_pickle_file_stream, setting_pickle_file_stream)
+        socketio.run(app)
