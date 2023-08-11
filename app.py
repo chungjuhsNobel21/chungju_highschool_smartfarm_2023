@@ -8,11 +8,15 @@ import time
 from PIL import Image
 import numpy as np
 import RPi.GPIO as GPIO
+<<<<<<< HEAD
 import base64
+=======
+from functools import wraps
+>>>>>>> bfdb4aa (commit before integrating dongwoos code)
 
 app = Flask(__name__)
 socketio = SocketIO(app)
-
+authenticated = False
 
 def convert_state(i):
     if i == GPIO.HIGH:
@@ -30,12 +34,13 @@ class FlaskAppWrapper():
         # TODO (정수) : authentication 기능 구현하여 로그인창 제외 다른 창에 로그인 못한 사용자가 접근 못하도록 막기
         #               만약 로그인 안한 사용자가 접근 불가능한 다른 창에 접근하려고 하면 not_login.html 반환하기 
         # 사용자 로그인 성공 여부
-        # TODO: 배포시 False로 바꾸기
-        self.authenticated = True
-
-        
+     
         self.data_pickle_file_stream = data_pickle_file_stream
         self.setting_pickle_file_stream = setting_pickle_file_stream
+        
+        self.datas = datas
+        self.reference_status = reference_status
+        
         
         # 라우팅
         self.setup_route()
@@ -57,6 +62,7 @@ class FlaskAppWrapper():
         self.app.add_url_rule('/', 'index', self.index, methods=['GET'])
         self.app.add_url_rule('/auth', 'authenticate', self.authenticate, methods=['POST'])
         self.app.add_url_rule('/stats', 'stats', self.stats, methods=['GET'])
+        self.app.add_url_rule('/not_login.html', 'not_login', self.login_required, methods=['GET'])
         self.app.add_url_rule('/control', 'control', self.control, methods=['GET'])
         self.app.add_url_rule('/control/set_temp', 'set_temp', self.set_temp, methods=['POST'])
         self.app.add_url_rule('/control/set_time_period', 'set_time_period', self.set_time_period, methods=['POST'])
@@ -106,17 +112,29 @@ class FlaskAppWrapper():
         return render_template('index.html')
 
     def authenticate(self):
+        global authenticated
         id = request.form.get('id')
         pw = request.form.get('password')
 
         # 아이디와 비밀번호 확인
         if id == 'admin' and pw == 'chungju_h@1':
-            self.authenticated = True
+            authenticated = True
             return redirect('stats')
         else :
             return redirect(request.referrer)
 
+    def login_required(func):
+        @wraps(func)
+        def decorated_view(*args, **kwargs):
+            global authenticated
+            if authenticated == True:
+                return func(*args, **kwargs)
+            else:
+                return render_template('not_login.html')
+        return decorated_view
+
     # TODO(정우) : 히터 상태, 1/2층 불 상태도 화면에 표시하도록 하기
+    @login_required
     def stats(self):
         # 초기 그래프를 그릴 데이터들을 가져옴
         recent_datas = self.datas[-7:-1]    # 최근 6개 데이터
@@ -132,7 +150,7 @@ class FlaskAppWrapper():
                                initial_temperatures=initial_temperatures,
                                initial_heights = initial_water_levels,
                                initial_humidities = initial_humidities)
-    
+    @login_required
     def control(self):
         #  TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
         # 위쪽의 background_task 함수에서 값을 얻어오고 딕셔너리 안에 넣어서 넘겨줘야함, 변수명 이래 직접써도 될라나모르겄다
@@ -150,7 +168,7 @@ class FlaskAppWrapper():
         print(f"self.reference_status : {self.reference_status}")
         return render_template('control.html',code=True, cur_status=cur_status, reference_status=self.reference_status)
     
-    
+    @login_required
     def set_temp(self):
         _temp = request.form.get('new_temp_reference')
         print(f"[app.set_temp()] : _temp : {_temp} (type : {type(_temp)})")
@@ -164,7 +182,8 @@ class FlaskAppWrapper():
             # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
             print("[app.set_temp] 허용되지 않은 입력이 존재합니다.")
             return redirect(request.referrer, code=False)
-        
+    
+    @login_required
     def set_time_period(self):     
         _on_time = request.form['new_turn_on_time_reference']
         _off_time = request.form['new_turn_off_time_reference']
@@ -185,6 +204,7 @@ class FlaskAppWrapper():
             print("[app.time_period] 허용되지 않은 입력이 존재합니다.")
             return redirect('/control', code=False)
 
+<<<<<<< HEAD
     def streaming(self):
         return render_template('streaming.html')
 
@@ -205,6 +225,21 @@ class FlaskAppWrapper():
                 last_emit_time = current_time
 
             socketio.emit("give_image", {"encoded_image": encoded_image}, broadcast=True)
+=======
+    # TODO (동우) : 버튼을 눌렀을때만 이미지를 얻어와 사용자의 웹사이트에 표시하는것이 아닌, 알아서 실시간으로 서버에서 웹사이트로 식물 사진을 보내줘 화면에 띄우도록 하기
+    @login_required
+    def streaming(self):
+        return render_template('streaming.html')
+        
+    @login_required
+    def update_image(self):
+        print("[app.update_image 실행됨]")
+        img_arr = self.smartfarm.get_image()
+        img = Image.fromarray(img_arr, "RGB")
+        image_filename = "last_taken_picture.jpeg"
+        img.save(image_filename)
+        return render_template('streaming.html', source='../' +image_filename)
+>>>>>>> bfdb4aa (commit before integrating dongwoos code)
 
 
 if __name__ == '__main__':
@@ -239,6 +274,11 @@ if __name__ == '__main__':
             
     # 웹서버가 파일을 적기 위한 파일 스트림을 연결하고 객체에 전달하고 실행함.
     # with 구문을 사용했기 때문에 서버가 종료되면 자동으로 파일이 닫히고 저장됨
-    with open('measure_data_pickle.pickle', 'ab'), open('setting_data_pickle.pickle', 'ab') as data_pickle_file_stream, setting_pickle_file_stream:        
-        app_wrapper = FlaskAppWrapper(app, datas, reference_status, data_pickle_file_stream, setting_pickle_file_stream)
-        socketio.run(app)
+    
+    data_pickle_file_stream = open('measure_data_pickle.pickle', 'ab')
+    setting_pickle_file_stream = open('setting_data_pickle.pickle', 'ab') 
+    app_wrapper = FlaskAppWrapper(app, datas, reference_status, data_pickle_file_stream, setting_pickle_file_stream)
+    socketio.run(app)
+    data_pickle_file_stream.close()
+    setting_pickle_file_stream.close()
+        
