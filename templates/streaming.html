@@ -6,12 +6,27 @@
     <title>Steaming</title>
   </head>
   <script>
+    var socket = io();  
+
+    <!-- base64 가상 이미지 url 생성 후 보이기 https://stackoverflow.com/questions/4564119/how-to-convert-a-byte-array-into-an-image
+        이방법 쓸거면 그냥 서버에서 이미지 저장하고 그 url 주는게 낫지 않을까? 시간 테스트해보기  -->
+    function updateImage(encoded_image) {
+      // Obtain a blob: URL for the image data.
+      var arrayBufferView = new Uint8Array( encoded_image );
+      var blob = new Blob( [ arrayBufferView ], { type: "image/jpeg" } );
+      var urlCreator = window.URL || window.webkitURL;
+      var imageUrl = urlCreator.createObjectURL( blob );
+      var img = document.querySelector( "#streamedImage" );
+      img.src = imageUrl;
+    }
+    
+    socket.on("give_image", function(data) {
+        updateImage(data.image_path);
+    })
   </script>
   <body>
     <div class="container">
-      <form name="form_login" action="/streaming/update_image" method="GET">
-          <button id="submit_button" type="submit" >Press to Get Image</button>
-      </form>
+      <img id="streamedImage" src="여기url넣으세요" alt="Streaming Image">
     </div>
   </body>
 </html>
