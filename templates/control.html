@@ -5,10 +5,9 @@
         <title>smartfarm_control</title>
     </head>
     <body>
-    <!-- TODO(태현) : Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기 -->
-    <!-- TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기 -->
+
         <form action="/control/set_temp" method = "post">
-	    {% if code == False %}
+	    {% if code == 'temp_invalid' %}
 	      <p style="color:red;">'숫자값만 입력해주세요!'</p>
 	    {% endif %}
             <label for="new_temp_reference"></label>
@@ -16,7 +15,16 @@
             <p>최저온도<input type="number" id="new_temp_reference"name="new_temp_reference"></p>
             <input type="submit">
         </form>
+
         <form action="/control/set_time_period" method = "post">
+	    {% if code == 'time_same' %}
+	      <p style="color:red;">'불을 켜는 시각과 불을 끄는 시각은 달라야합니다!'</p>
+	    {% endif %}
+
+	    {% if code == 'time_invalid' %}
+	      <p style="color:red;">'입력받은 값이 올바르지 않습니다!'</p>
+	    {% endif %}
+            <!-- TODO(태현) : 기본값으로 기존에 설정되어있는 값인 reference_status.ref_turn_on_time과 ref_turn_off_time이 input 태그 안에 들어가 있도록 해야함. 그래야 빈 값이 form에서 post로 전달되어 백엔드에서 일어나는 오류를 막음/. -->
             <label for="new_turn_on_time_reference"></label>
             <label for="new_turn_off_time_reference"></label>
             <h2>시간</h2>
@@ -27,7 +35,7 @@
         </form>
     <!--위에가 동우가 짠 기본값 설정-->
         
-        <h2>목표온도/현재온도 : {{reference_status.ref_temperature}} / {{cur_status.cur_temperature}}</h2>
+        <h2>최저온도/현재온도 : {{reference_status.ref_temperature}} / {{cur_status.cur_temperature}}</h2>
         <h2>설정 점등/소등 시간 : {{reference_status.ref_turn_on_time}} / {{reference_status.ref_turn_off_time}}</h2>
         <!--아래는 아마 이 양식 그대로 쭉 쓸거같음. 제대로 작동되는지 테스트해보고 알려주면 다 작성해서 다시 올릴께-->
         

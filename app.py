@@ -8,14 +8,12 @@ import time
 from PIL import Image
 import numpy as np
 import RPi.GPIO as GPIO
-<<<<<<< HEAD
 import base64
-=======
 from functools import wraps
->>>>>>> bfdb4aa (commit before integrating dongwoos code)
 
 app = Flask(__name__)
 socketio = SocketIO(app)
+# 사용자 로그인 성공 여부
 authenticated = False
 
 def convert_state(i):
@@ -26,29 +24,36 @@ def convert_state(i):
     else:
         return i
 
-class FlaskAppWrapper():
-    def __init__(self, app, datas, reference_status, data_pickle_file_stream, setting_pickle_file_stream):
-        self.app = app
-        self.smartfarm = smartFarm_Device()
+# TODO: pickle 파일 저장 제대로 되는지 확인하기
 
-        # TODO (정수) : authentication 기능 구현하여 로그인창 제외 다른 창에 로그인 못한 사용자가 접근 못하도록 막기
-        #               만약 로그인 안한 사용자가 접근 불가능한 다른 창에 접근하려고 하면 not_login.html 반환하기 
-        # 사용자 로그인 성공 여부
-     
-        self.data_pickle_file_stream = data_pickle_file_stream
-        self.setting_pickle_file_stream = setting_pickle_file_stream
-        
-        self.datas = datas
+class FlaskAppWrapper():
+    def __init__(self, app, datas, reference_status):
+        self.datas = datas # 이전까지의 측정값 데이터들
+        self.session_new_datas = list() # 이번 세션에서 새롭게 측정한 데이터들을 모을 리스트 -> 앱 종료시 이것만 피클 파일에 이어붙임
         self.reference_status = reference_status
-        
+
+
+        ref_temp = self.reference_status['ref_temperature']
+        # 켤시각과 끌 시각은 datetime.time형으로 전달해야하기 때문에 문자열에서 datetime.time 형으로 변환함
+        ref_turn_on_time = datetime.strptime(self.reference_status['ref_turn_on_time'], "%H:%M").time()
+        ref_turn_off_time = datetime.strptime(self.reference_status['ref_turn_off_time'], "%H:%M").time()
+        print("[app.__init__] 설정된 초기값들")
+        print(f"    - 설정 최소 온도 : {ref_temp}")
+        print(f"    - 설정된 켜는 시각 : {ref_turn_on_time}")
+        print(f"    - 설정된 끄는 시각 : {ref_turn_off_time}")
+
+        self.app = app
+        self.smartfarm = smartFarm_Device(ref_temp, ref_turn_on_time, ref_turn_off_time)
         
         # 라우팅
         self.setup_route()
         
-        # background_thread 시작함
-        # TODO : start_background_task 작동하는지 확인
-        background_thread = socketio.start_background_task(self.background_task)
-        background_streaming_thread = socketio.start_background_task(self.update_image_periodically)
+        # background thread 시작함
+        background_emit_measurement_thread = socketio.start_background_task(self.measure_and_emit_periodically)
+        # background_streaming_thread = socketio.start_background_task(self.update_image_periodically)
+
+        # CLEANUP : 스마트팜이 스스로 상태를 계속 조절하는 스레드와 그 스레드용 함수는 app.py가 아니라 hardware.py에 있어야 하고, 스마트팜의 __init__함수에서 스레드가 시작되는게 마땅함!
+        background_adjust_thread = socketio.start_background_task(self.adjust_periodically)
 
     def setup_route(self):
         '''
@@ -68,11 +73,14 @@ class FlaskAppWrapper():
         self.app.add_url_rule('/control/set_time_period', 'set_time_period', self.set_time_period, methods=['POST'])
         self.app.add_url_rule('/streaming', 'streaming', self.streaming, methods=['GET'])
 
-    # TODO (기훈) : background_task 실제 서버 운영 스레드와 함께 정상 작동하도록 스레드 흐름 고치기
-    def background_task(self):
+    def measure_and_emit_periodically(self):
+        '''
+        30초에 한번씩 주기적으로 스마트팜의 측정값들을 갱신하고 얻은 측정값들을 'give_data'란 이벤트 이름으로 emit하는 스레드용 함수
+        '''
         while True:
-            print("[app.background_task() 실행됨]")
+            print("[app.measure_and_emit_periodically() 실행됨]")
             start_time = time.time()
+
             # 스마트팜 측정 후 데이터 얻음
             self.smartfarm.measure_temp_and_humidity()
             self.smartfarm.measure_water_level()
@@ -83,31 +91,38 @@ class FlaskAppWrapper():
             heater_state = self.smartfarm.get_heater_state()
             pump_state = self.smartfarm.get_pump_state()
             
+            # emit 및 저장을 위해 데이터를 가공
             now = datetime.now()
-            now_str = now.strftime("%Y.%m.%d %H:%M:%S")
-            
+            now_str = now.strftime("%Y.%m.%d %H:%M:%S")            
             name = ["timestamp","humidity","temperature", "water_level", "first_light_state", "second_light_state", "heater_state", "pump_state"]
-            a = list(map(convert_state, [now_str, humidity,temperature, water_level, first_light_state, second_light_state, heater_state, pump_state]))
-            # emit할 dict
-            data_dict = dict(zip(name, a))
-            self.datas.append(data_dict)
-            
-            # 이전 emit으로부터 30초가 흐를때까지 기다린 후 다음 emit을 진행함
-            # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep
+            states = list(map(convert_state, [first_light_state, second_light_state, heater_state, pump_state])) 
+            data_dict = dict(zip(name, [now_str, humidity, temperature, water_level] + states)) # 만든 결과 dict
+
+            # 만든 결과를 저장
+            self.datas.append(data_dict) # 기존 데이터들까지 가지고 있는 측정값들 리스트
+            self.session_new_datas.append(data_dict) # 현재 서버 세션에서 새롭게 측정된 측정값들 리스트
+
+            # 이전 emit으로부터 30초가 흐를때까지 기다림
+              # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep (비동기 멈춤)
             end_time = time.time()
             if 30 - (end_time - start_time) > 0 :
-                print(f"[background_task] : {30 - (end_time - start_time)} 만큼 기다립니다.")
+                print(f"    [app.acquire_and_emit_periodically] : {30 - (end_time - start_time)} 만큼 기다립니다.")
                 socketio.sleep(30 - (end_time - start_time))
         
-            # 만약 사용자가 인증되어있으면 give_data 이벤트 이름으로 data_dict 보냄
-            # give_data 이벤트 이름으로 보낸 data_dict 데이터는 stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것임
-            if self.authenticated == True :
-                with self.app.app_context() as context :                
-                    
-                    # socketio.emit 함수를 사용할때는 jsonify()를 사용하지 말고 그냥 딕셔너리 형태의 데이터를 주어야 함! 
-                    # https://stackoverflow.com/questions/75004494/typeerror-object-of-type-response-is-not-json-serializable-2
-                    socketio.emit('give_data', data_dict)
-            
+            # 이벤트 이름 'give_data'로 데이터 data_dict를 emit -> stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것
+            with self.app.app_context() as context :                
+                socketio.emit('give_data', data_dict)   # socketio.emit 함수를 사용할때는 jsonify()를 사용하지 말고 그냥 딕셔너리 형태의 데이터를 주어야 함! 
+                                                          # 참고 : https://stackoverflow.com/questions/75004494/typeerror-object-of-type-response-is-not-json-serializable-2
+    def adjust_periodically(self):
+        '''
+        1초에 한번씩 smartfarm.adjust 함수를 실행시키는 스레드용 함수
+        '''
+        # CLEANUP : 스마트팜이 스스로 상태를 계속 조절하는 스레드와 그 스레드용 함수는 app.py가 아니라 hardware.py에 있어야 하고, 스마트팜의 __init__함수에서 그 스레드가 시작되는게 마땅함!
+        while True:
+            self.smartfarm.adjust()        
+            socketio.sleep(1)
+    
+
     def index(self):
         return render_template('index.html')
 
@@ -152,10 +167,9 @@ class FlaskAppWrapper():
                                initial_humidities = initial_humidities)
     @login_required
     def control(self):
-        #  TODO(태현) : 현재 설정값을 보여주는 text 만들어서 최초 Flask Jinja 템플릿 기능으로 현재 설정된 스마트팜 상태값을 보여주기
         # 위쪽의 background_task 함수에서 값을 얻어오고 딕셔너리 안에 넣어서 넘겨줘야함, 변수명 이래 직접써도 될라나모르겄다
         cur_status ={
-            'cur_temperature':self.smartfarm.get_temperature() or 26,
+            'cur_temperature':self.smartfarm.get_temperature(),
             'cur_humidity':self.smartfarm.get_humidity(),
             'cur_water_level':self.smartfarm.get_water_level() ,
             'cur_first_light_state' : self.smartfarm.get_light_state()[0],
@@ -175,110 +189,107 @@ class FlaskAppWrapper():
         try :
             temp = float(_temp)
             self.smartfarm.set_min_temp(temp)
-            # TODO(코드클리닝) : 태현이 변수 리네임하면서 코드 클리닝 ㄱㄱ
+            # CLEANUP : ref보다 setting으로 표현하는게 더 이해하기 쉬운듯. app.py에 사용되는 변수명과 control.html에 쓰이는 변수명들을 모두 바꾸는 것이 어떨까?
             self.reference_status['ref_temperature'] = temp
             return redirect(request.referrer)
         except ValueError as e :
-            # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
             print("[app.set_temp] 허용되지 않은 입력이 존재합니다.")
-            return redirect(request.referrer, code=False)
+            return redirect(request.referrer, code='temp_invalid')
     
     @login_required
     def set_time_period(self):     
-        _on_time = request.form['new_turn_on_time_reference']
-        _off_time = request.form['new_turn_off_time_reference']
-        print(f"[app.set_time_period] : _on_time : {_on_time} ({type(_on_time)})")
-        print(f"[app.set_time_period] : _off_time : {_off_time} ({type(_off_time)})")
+        on_time_str = request.form['new_turn_on_time_reference']
+        off_time_str = request.form['new_turn_off_time_reference']
+        print(f"[app.set_time_period] : on_time_str : {on_time_str} ({type(on_time_str)})")
+        print(f"[app.set_time_period] : off_time_str : {off_time_str} ({type(off_time_str)})")
+
+        if on_time_str == off_time_str :
+            print("[app.time_period] : 입력받은 두 시각이 동일합니다!")
+            return redircet('/control', code='time_same')
             
         try :
             # smartfarm에는 datetime.datetime 형으로 넘겨줘야해서 형변환 시켜줌
-            on_time = time.strptime(_on_time, '%H:%M')
-            off_time = time.strptime(_off_time, '%H:%M')
+            on_time = datetime.strptime(on_time_str, '%H:%M').time()
+            off_time = datetime.strptime(off_time_str, '%H:%M').time()
             self.smartfarm.set_on_time(on_time)
             self.smartfarm.set_off_time(off_time)
-            self.reference_status['ref_turn_on_time'] = _on_time
-            self.reference_status['ref_turn_off_time'] = _off_time
+            self.reference_status['ref_turn_on_time'] = on_time_str
+            self.reference_status['ref_turn_off_time'] = off_time_str
             return redirect('/control')
         except ValueError as e :
-            # TODO(태현) :Flask Jinja 템플릿 기능 이용해서 백엔드에서 입력 처리후 만약 허용되지 않은 입력(ex: 온도인데 '앙'같은 문자)이면 허용되지 않은 입력이라는 메시지 보내기
             print("[app.time_period] 허용되지 않은 입력이 존재합니다.")
-            return redirect('/control', code=False)
+            return redirect('/control', code='time_invalid')
 
-<<<<<<< HEAD
+    @login_required
     def streaming(self):
         return render_template('streaming.html')
 
     def update_image_periodically(self):
+        '''
+        6초에 한번씩 스마트팜으로부터 이미지를 얻어 'give_image'란 이벤트 이름으로 이미지를 byte형으로 emit하는 스레드용 함수.
+        30초에 한번씩은 스마트팜에서 얻은 byte형 이미지를 로컬에 측정시각을 파일 이름으로 하여 jpeg로 저장함.
+        '''
         last_saved_time = time.time()
         last_emit_time = time.time()
         while True:
             print("[update_image_periodically 실행됨]")
             current_time = time.time()
             # 사진을 파일로 저장하는 주기는 30초로하고, 30초 이전에는 저장 없이 스트림에서 byte64로 이미지만 가져옴
+            # CLEANUP : 이미지를 파일로 저장하는 기능은 스마트팜이 아니라 서버에서 구현하는게 맞을듯. 스마트팜의 get_image에 save_to_file을 인자로 주어 그에 맞게 스마트팜에서 이미지를 저장하거나 저장하지 않도록 하는 것이 아니라,
+            #           스마트팜은 단순히 이미지를 찍어 byte로 리턴하고, 저장은 서버의 update_image_periodically 함수에서 하자
             if current_time - last_saved_time >= 30:
-                encoded_image = self.smartfarm.get_image(save_to_file=True)
+                byte_image = self.smartfarm.get_image(save_to_file=True)
+                last_saved_time = current_time
             else :
-                encoded_image = self.smartfarm.get_image(save_to_file=False)
-            # 사진을 보낸 시간이 0.1초가 안지났으면 0.1초가 될때까지 기다림
-            if (current_time - last_emit_time) < 0.1 :
-                socketio.sleep(0.1 - (current_time - last_emit_time))
-                last_emit_time = current_time
+                byte_image = self.smartfarm.get_image(save_to_file=False)
 
-            socketio.emit("give_image", {"encoded_image": encoded_image}, broadcast=True)
-=======
-    # TODO (동우) : 버튼을 눌렀을때만 이미지를 얻어와 사용자의 웹사이트에 표시하는것이 아닌, 알아서 실시간으로 서버에서 웹사이트로 식물 사진을 보내줘 화면에 띄우도록 하기
-    @login_required
-    def streaming(self):
-        return render_template('streaming.html')
-        
-    @login_required
-    def update_image(self):
-        print("[app.update_image 실행됨]")
-        img_arr = self.smartfarm.get_image()
-        img = Image.fromarray(img_arr, "RGB")
-        image_filename = "last_taken_picture.jpeg"
-        img.save(image_filename)
-        return render_template('streaming.html', source='../' +image_filename)
->>>>>>> bfdb4aa (commit before integrating dongwoos code)
+            # 사진을 보낸 시간이 6초가 안지났으면 6초 될때까지 기다림
+            if (current_time - last_emit_time) < 6 :
+                # print(f"  [update_image_periodically] async sleep for {6 - (current_time - last_emit_time) :.3f} seconds")
+                socketio.sleep(6 - (current_time - last_emit_time))
+            last_emit_time = time.time()
+
+            socketio.emit("give_image", {"byte_image": byte_image})
 
 
 if __name__ == '__main__':
     # pickle로부터 측정값 가져오기
-    
     # 읽기모드는 append, byte형 (pickle은 byte형으로 저장한다는게 중요함)
     ## self.datas의 구조
     # 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
     # "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
     # self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
-    with open('measure_data_pickle', 'rb') as pickle_file:
+    with open('measure_data_pickle', 'rb') as data_pickle_file:
         try :
-            datas = pickle.load(pickle_file)
+            datas = pickle.load(data_pickle_file)
         except EOFError as e :
             print("불러올 pickle 측정값 데이터가 없음")
             datas = list()
     
     #pickle로부터 설정값 가져오기
-    
     # TODO(코드클리닝)- 확장자
     ## self.last_setting의 구조
-    # {'ref_temperature' : (설정된 최저온도 값), 'ref_turn_on_time' :(설정된 켤 시각 "07:11:09"와 같은 문자열), 'ref_turn_off_time' :(설정된 끌 시각)}
-    with open('setting_data_pickle.pickle', 'rb') as pickle_file:
+    # {'ref_temperature' : (설정된 최저온도 값), 'ref_turnon_time_str' :(설정된 켤 시각 "07:11"와 같은 문자열), 'ref_turnoff_time_str' :(설정된 끌 시각)}
+    with open('setting_data_pickle.pickle', 'rb') as setting_pickle_file:
         try :
-            reference_status = pickle.load(pickle_file)
+            reference_status = pickle.load(setting_pickle_file)
         except EOFError as e :
             print("불러올 pickle 설정값 데이터가 없음")
             # 불러올 유저 세팅값이 없으면 기본 세팅값을 맞춤
             reference_status = {'ref_temperature' : 19,
-                                 'ref_turn_on_time' :"06:00:00",
-                                 'ref_turn_off_time' :"18:00:00"}
-            
-    # 웹서버가 파일을 적기 위한 파일 스트림을 연결하고 객체에 전달하고 실행함.
-    # with 구문을 사용했기 때문에 서버가 종료되면 자동으로 파일이 닫히고 저장됨
-    
-    data_pickle_file_stream = open('measure_data_pickle.pickle', 'ab')
-    setting_pickle_file_stream = open('setting_data_pickle.pickle', 'ab') 
-    app_wrapper = FlaskAppWrapper(app, datas, reference_status, data_pickle_file_stream, setting_pickle_file_stream)
+                                 'ref_turnon_time_str' :"06:00:00",
+                                 'ref_turnoff_time_str' :"18:00:00"}
+    # flask 앱과 스마트팜을 wrap한 객체 만들고
+    wrapper = FlaskAppWrapper(app, datas, reference_status)
+    # 앱 실행시킴
     socketio.run(app)
-    data_pickle_file_stream.close()
-    setting_pickle_file_stream.close()
+
+    # 앱 종료후 변경된 데이터들 저장함 - 측정값 데이터들은 새로운 것들만 이어붙이고, 설정값은 아예 덮어쓰기함
+    with open('measure_data_pickle', 'ab') as data_pickle_file:
+        pickle.dump(wrapper.session_new_datas, data_pickle_file)
+    with open('setting_data_pickle', 'wb') as setting_pickle_file:
+        pickle.dump(wrapper.reference_status, setting_pickle_file)
+
+
+ 
         

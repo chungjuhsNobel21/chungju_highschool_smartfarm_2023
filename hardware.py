@@ -1,10 +1,10 @@
 import RPi.GPIO as GPIO
 # pip install Adafruit_DHT로 DHT 온습도센서 사용 모듈을 설치
 import Adafruit_DHT
-import asyncio
+import threading
 import spidev
-import time
-from datetime import datetime
+from time import sleep
+from datetime import datetime, time
 import picamera
 from PIL import Image
 from io import BytesIO
@@ -16,9 +16,14 @@ pin_led_first_floor = 26
 pin_led_second_floor = 19
 pin_heater = 13
 pin_pump = 6
+pin_dhts = [21,20,16,12]
 
 
-pin_dhts = [21,20,16,12] # [0] ; 21로 나중에 바꾸기
+# 사용자 설정값이 주어지지 않았을 경우 사용할 기본값
+DEFAULT_MIN_TEMP = 18
+DEFAULT_ON_TIME = time(hour=5)
+DEFAULT_OFF_TIME = time(hour=19)
+
 
 
 # 스마트팜 하드웨어와 소통하는 클래스를 정의
@@ -36,34 +41,55 @@ class smartFarm_Device:
     GPIO.state 형인지 무결성 검사 check_state_integrity를 거침.
 
     '''
-    def __init__(self, user_set_min_temp=18):
+    def __init__(self, user_set_min_temp=None, user_set_on_time:time=None, user_set_off_time:time=None):
         '''
-        클래스 초기화하며 서버에서 저장된 마지막 사용자설정상태를 받아 self.user_set_변수로 저장함
-        - user_set_min_temp : 사용자가 설정한 최저온도
-        - user_set_on_time : 사용자가 설정한 불 켜는 시각
-        - user_set_off_time : 사용자가 설정한 불 끄는 시각
+        클래스 초기화하며 서버에 저장된 마지막 사용자 설정상태를 인자로 받아 self.user_set_(변수)로 저장함.
+        마지막 사용자 설정상태가 주어지지 않으면 자동으로 최저온도 18도, 켜는시각 05시 00분, 끄는 시각 19시 00분으로 설정됨.
+        - user_set_min_temp(float): 사용자가 설정한 최저온도
+        - user_set_on_time(time) : 사용자가 설정한 불 켜는 시각
+        - user_set_off_time(time) : 사용자가 설정한 불 끄는 시각
         '''
-        
-        self.temperature = 0
-        self.humidity = 0
-        self.water_level = 0
+        # 측정값들 변수 정의
+        self.temperature = 15
+        self.humidity = 50
+        self.water_level = 2
 
+        # 각종 액추에이터들의 출력 상태 변수 정의 - 어차피 아래 adjust 함수 실행하면서 바뀔 것임
+        self.pump_state = GPIO.HIGH
+        self.led_first_state = GPIO.HIGH
+        self.led_second_state = GPIO.HIGH
+        self.heater_state = GPIO.LOW
         # spi 기본 설정
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
         self.spi.max_speed_hz = 1000000
 
         #  카메라 관련
-        self.camera = picamera.PiCamera()
+        # TODO: 라즈베리파이 카메라 고치면 주석 풀고 카메라 쓰이는 기능들 사용하기
+        # self.camera = picamera.PiCamera()
         self.stream = BytesIO()
-        
-        # 사용자의 설정값
-        self.user_set_min_temp = user_set_min_temp
-        # TODO: 테스트 끝나면 풀기
-        # self.on_time = user_set_on_time
-        # self.off_time = user_set_off_time
-        self.start_device()
-        
+
+
+        # 사용자의 설정값을 지정함
+        self.min_temp = user_set_min_temp
+        self.on_time:time = user_set_on_time # user_set_on_time은 app.py 에서 전달받은 설정값은 %H:%M (즉, 시:분) 형식의 datetime 객체임
+        self.off_time:time = user_set_off_time 
+        if self.min_temp is None :
+            print(f'[hardware] : 최저 온도 설정값이 주어지지 않아 기본값 {DEFAULT_MIN_TEMP}로 설정합니다!')
+        if self.on_time is None :
+            print(f'[hardware] : 불을 켜는 시각이 주어지지 않아 기본값 {DEFAULT_MIN_TEMP}로 설정합니다!')
+        if self.off_time is None :
+            print(f'[hardware] : 불을 끄는 시각이 주어지지 않아 기본값 {DEFAULT_MIN_TEMP}로 설정합니다!')
+
+        # GPIO 초기설정
+        self.setup_gpio()
+
+        # 스마트팜이 켜지고 초기 측정값을 얻어옴
+        self.measure_temp_and_humidity()
+        self.measure_water_level()
+
+        # 사용자 설정값에 맞게 스마트팜 전등과 히터를 켜거나 끔
+        self.adjust()
 
     def check_state_integrity(self, state):
         '''state가 허용된 값인 GPIO.HIGH 혹은 GPIO.LOW 둘 중 하나의 값인지 무결성을 검증하는 함수'''
@@ -73,8 +99,8 @@ class smartFarm_Device:
             return
 
 
-    def start_device(self):
-        '''GPIO 초기 설정을 진행하고 출력 핀을 기본모드로 설정'''
+    def setup_gpio(self):
+        '''GPIO 초기 설정을 진행'''
         # TEST : start_device 실제 작동 테스트
         # 라즈베리파이 핀맵 구성모드를 BCM으로 설정
         GPIO.setmode(GPIO.BCM)
@@ -84,21 +110,6 @@ class smartFarm_Device:
         GPIO.setup(pin_led_second_floor, GPIO.OUT)
         GPIO.setup(pin_heater, GPIO.OUT)
         GPIO.setup(pin_pump, GPIO.OUT)
-        # 예시코드들에서 온습도센서핀은 GPIO 설정 안해주는것 같음
-        # for pin in pin_dhts:
-        #     GPIO.setup(pin, GPIO.IN)
-        
-        # 출력 핀들의 초기 출력모드 설정
-        self.led_first_state = GPIO.HIGH
-        self.led_second_state = GPIO.HIGH
-        self.heater_state = GPIO.HIGH
-        self.pump_state = GPIO.HIGH
-
-        # 출력 핀들의 초기 출력모드에 따라서 실제 장치들을 켬
-        self._heater_update()
-        self._led_first_update()
-        self._led_second_update()
-        self._pump_update()
 
     def off_device(self):
         '''펌프를 끄고 장비를 정지함'''
@@ -116,80 +127,116 @@ class smartFarm_Device:
         self._heater_update()
         self._pump_update()
 
-        # # 사용했던 DHT 센서 객체들 삭제
-        # del(self._dht_sensor_1)
-        # del(self._dht_sensor_2)
-        # del(self._dht_sensor_3)
-        # del(self._dht_sensor_4)
-
         GPIO.cleanup()  # GPIO 초기화
 
     def adjust(self):
-        # 온도 조절
-        if self.temperature < self.set_min_temperature:
-            self._heater_update(GPIO.HIGH)
-        else:
-            self._heater_update(GPIO.LOW)
+        '''
+        측정된 센서값과 사용자 설정값을 비교하여 전등과 히터를 켜거나 끄는 함수.
+        '''
+        # 히터 조절하기 - Tested
+        if self.temperature < self.min_temp and self.heater_state == GPIO.LOW:
+            self.heater_state = GPIO.HIGH
+            self._heater_update()
+        elif self.temperature > (self.min_temp + 2) and self.heater_state == GPIO.HIGH:
+            self.heater_state = GPIO.LOW
+            self._heater_update()
 
+        # datetime.now()로 오늘의 날짜와 시각을 담은 datetime 객체를 얻고 time()함수로 시간만을 표현하는 time 객체로 변환함.
+        # self.on_time 과 self.off_time이 모두 time 객체이기 때문에 비교를 위해서 필요함.
         now = datetime.now().time()
 
-        # TODO (정우) : adjust함수에서 시각 비교시 off_time이 on_time 보다 빠를 경우에 처리
-        if self.on_time <= now and now < self.off_time:
-            self.led_first_state = GPIO.HIGH
-            self.led_first_state = GPIO.LOW
-            self._led_first_update()
-            self._led_second_update()
-        else:
-            self.led_first_state = GPIO.HIGH
-            self.led_first_state = GPIO.LOW
-            self._led_first_update()
-            self._led_second_update()
+        # 켜는시각이 끄는시각보다 앞서면 - Tested 
+        if self.on_time < self.off_time : 
+            if self.on_time <= now and now < self.off_time: # 켜야할 시각이 되면
+                if self.led_first_state == GPIO.LOW and self.led_second_state == GPIO.LOW : # 불이 꺼져있으면 켬
+                    self.led_first_state = GPIO.HIGH
+                    self.led_second_state = GPIO.HIGH
+                    self._led_first_update()
+                    self._led_second_update()
+            
+            else: # 꺼야할 시각이 되면
+                if self.led_first_state == GPIO.HIGH and self.led_second_state == GPIO.HIGH: # 불이 켜져있으면 끔
+                    self.led_first_state = GPIO.LOW
+                    self.led_second_state = GPIO.LOW
+                    self._led_first_update()
+                    self._led_second_update()
 
-
+        # 끄는시각이 켜는시각보다 앞서면 - Tested
+        elif self.on_time > self.off_time :
+            if now < self.off_time or now >= self.on_time: # 켜야할 시각이 되면
+                if self.led_first_state == GPIO.LOW and self.led_second_state == GPIO.LOW : # 불이 꺼져있으면 켬
+                    self.led_first_state = GPIO.HIGH
+                    self.led_second_state = GPIO.HIGH
+                    self._led_first_update()
+                    self._led_second_update()
+            
+            else: # 꺼야할 시각이 되면
+                if self.led_first_state == GPIO.HIGH and self.led_second_state == GPIO.HIGH: # 불이 켜져있으면 끔
+                    self.led_first_state = GPIO.LOW
+                    self.led_second_state = GPIO.LOW
+                    self._led_first_update()
+                    self._led_second_update()
+    
     def measure_temp_and_humidity(self)->None :
         '''
-        온도 및 습도 측정해 self.temperature, self.humidity에 저장하는 함수
+        온도 및 습도 측정해 self.temperature, self.humidity에 저장하는 함수.
         '''
-        # TEST : measure_temp_and_humidity 실제 작동 테스트
-        # TEST : 온습도 측정에서 비동기가 잘 되는지 확인하기
         print("[hardware.measure_temp_and_humidity() 실행됨]")
-        humidities = list()
-        temperatures = list()
+        humidities = [0, 0, 0, 0]
+        temperatures = [0, 0, 0, 0]
         humid_count = 0
         temp_count = 0
         sensor_type = Adafruit_DHT.DHT11
-        for i, sensor in enumerate(pin_dhts[0:1]):
-            print(f" {i+1}번 센서 : ", end='')
-            print()
-            # 측정 시도. 타이밍에 민감한 작업이기 때문에 실패시 2초 기다리고 재측정함. 개당 15까지 측정함
-            humid, temp = Adafruit_DHT.read_retry(sensor_type, pin_dhts[i], retries=15)
-            if humid is not None :
-                humidities.append(humid)
+
+	# 측정을 위한 Worker 스레드 클래스
+        class Worker(threading.Thread):
+            def __init__(self, pin):
+                super().__init__()
+                self.temp = None
+                self.humid = None
+                self.pin = pin
+
+            def run(self):
+                self.measure()
+
+            def measure(self):
+                self.humid, self.temp = Adafruit_DHT.read_retry(sensor_type, self.pin, retries=14)
+                print(f"    [worker({self.pin})] humid : {self.humid}, temp : {self.temp}")
+
+        # 측정용 스레드 만들고 동시에 실행하여 측정값을 얻음
+        threads = []
+        for i in range(4):
+            thread = Worker(pin_dhts[i])
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()    # 만든 스레드들의 종료시각이 일치하도록 join함
+
+        for i in range(4):
+            if threads[i].humid is not None:
+                humidities[i] = threads[i].humid
                 humid_count += 1
-                print(f"    humid : {humid:.3f}")
-            else :
-                print(f"    humid : Failed (None)")
-            if temp is not None:
-                temperatures.append(temp)
+            if threads[i].temp is not None:
+                temperatures[i] = threads[i].temp
                 temp_count += 1
-                print(f"    temp : {temp:.3f}")
-            else :
-                print(f"    temp : Failed (None)")
-        
+ 
         # 측정값이 하나도 없으면
         if humid_count == 0:
-            print('온습도센서로 측정한 습도값이 없습니다!')
+            print(f'온습도센서로 측정한 습도값이 없습니다! - 이전에 저장된 습도값을 반환합니다 : {self.humidity}')
         else :
             self.humidity = sum(humidities) / humid_count
+            print(f'    [hardware.measure_temp_and_humidity()] 측정된 습도값 : {self.humidity}')
         
         if temp_count == 0:
-            print('온습도센서로 측정한 온도값이 없습니다!')
+            print(f'온습도센서로 측정한 온도값이 없습니다! - 이전에 저장된 온도값을 반환합니다 : {self.temperature}')
         else :
             self.temperature = sum(temperatures) / temp_count
+            print(f'    [hardware.measure_temp_and_humidity()] 측정된 온도값 : {self.temperature}')
             
+
     def measure_water_level(self)->None :
         '''3층 물통 수위 측정해 self.water_level 값을 갱신하는 함수'''
-        # TODO : measure_water_level 아날로그 변환 식 제대로 작성하기
         print("[hardware.measure_water_level() 실행됨]")
         adc = self.spi.xfer2([1, (8+ 0) << 4, 0])
         adc_out = ((adc[1]&3) << 8 ) + adc[2]
@@ -295,25 +342,25 @@ class smartFarm_Device:
         return self.heater_state
 
     def get_image(self, save_to_file = False):
-        '''
-        사진을 찍어 base64로 인코딩한 데이터를 리턴함.
-        -save_to_file : True로 설정되면 f"./captured_images/datetime.now().strftime('%Y.%m.%d %H:%M:%S').jpeg"로 파일을 저장
-        '''
-        print("[hardware.get_image() 실행됨]")
-        
-        photo_width = 600
-        photo_height = 600
-        self.camera.capture(self.stream, format='jpeg')
-        self.stream.seek(0)
-        if save_to_file == True :
-            with Image.open(self.stream) as img : 
-                image_path = './captured_images/'
-                image_filename = f"{datetime.now().strftime('%Y.%m.%d %H:%M:%S')}.jpeg"
-                img.save(image_path + image_filename)
-        self.stream.seek(0)
-        encoded_image = base64.b64encode(self.stream.getvalue()).decode("utf-8")
-        return encoded_image
-
+#        '''
+#        사진을 찍어 byte로 반환함.
+#        -save_to_file : True로 설정되면 f"./captured_images/{datetime.now().strftime('%Y.%m.%d_%H:%M:%S')}.jpeg"로 파일을 저장
+         print(f"[hardware.get_image({save_to_file}) 실행됨]")
+#        
+#        photo_width = 600
+#        photo_height = 600
+#        self.camera.capture(self.stream, format='jpeg')
+#        self.stream.seek(0)
+#        encoded_image = self.stream.getvalue()
+#        self.stream.seek(0)
+#        if save_to_file == True :
+#            with Image.open(self.stream) as img : 
+#                image_path = './captured_images/'
+#                image_filename = f"{datetime.now().strftime('%Y.%m.%d_%H:%M:%S')}.jpeg"
+#                img.save(image_path + image_filename)
+#            self.stream.seek(0)
+#
+#        return encoded_image
 
     def _pump_update(self):
         '''현재 self.pump_state에 맞게 펌프를 끄거나 켜는 함수'''
@@ -321,7 +368,7 @@ class smartFarm_Device:
         GPIO.output(pin_pump, self.pump_state)
 
     def _heater_update(self):
-        print(f"[_heater_update] : 펌프를 {self.pump_state}로 켭니다/끕니다.")    
+        print(f"[_heater_update] : 히터를 {self.heater_state}로 켭니다/끕니다.")    
         GPIO.output(pin_heater, self.heater_state)
         
 
