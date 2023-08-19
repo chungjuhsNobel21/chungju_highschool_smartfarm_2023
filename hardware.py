@@ -14,8 +14,8 @@ import base64
 # 핀 배치들을 변수로 저장해둠
 pin_led_first_floor = 26
 pin_led_second_floor = 19
-pin_heater = 13
-pin_pump = 6
+pin_heater = 6
+pin_pump = 13
 pin_dhts = [21,20,16,12]
 
 
@@ -76,17 +76,20 @@ class smartFarm_Device:
         self.off_time:time = user_set_off_time 
         if self.min_temp is None :
             print(f'[hardware] : 최저 온도 설정값이 주어지지 않아 기본값 {DEFAULT_MIN_TEMP}로 설정합니다!')
+            self.min_temp = DEFAULT_MIN_TEMP
         if self.on_time is None :
-            print(f'[hardware] : 불을 켜는 시각이 주어지지 않아 기본값 {DEFAULT_MIN_TEMP}로 설정합니다!')
+            print(f'[hardware] : 불을 켜는 시각이 주어지지 않아 기본값 {DEFAULT_ON_TIME}로 설정합니다!')
+            self.on_time = DEFAULT_ON_TIME
         if self.off_time is None :
-            print(f'[hardware] : 불을 끄는 시각이 주어지지 않아 기본값 {DEFAULT_MIN_TEMP}로 설정합니다!')
+            print(f'[hardware] : 불을 끄는 시각이 주어지지 않아 기본값 {DEFAULT_OFF_TIME}로 설정합니다!')
+            self.off_time = DEFAULT_OFF_TIME
 
         # GPIO 초기설정
         self.setup_gpio()
 
         # 스마트팜이 켜지고 초기 측정값을 얻어옴
-        self.measure_temp_and_humidity()
-        self.measure_water_level()
+        # self.measure_temp_and_humidity()
+        # self.measure_water_level()
 
         # 사용자 설정값에 맞게 스마트팜 전등과 히터를 켜거나 끔
         self.adjust()
@@ -241,7 +244,7 @@ class smartFarm_Device:
         adc = self.spi.xfer2([1, (8+ 0) << 4, 0])
         adc_out = ((adc[1]&3) << 8 ) + adc[2]
         a_volt = 3.3 * adc_out / 1024
-        print(f"volt : {a_volt}")
+        print(f"adc_out : {adc_out}")
         self.water_level = self.adc_to_water_level(a_volt)
         
     def adc_to_water_level(self, a_volt):

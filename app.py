@@ -10,6 +10,7 @@ import numpy as np
 import RPi.GPIO as GPIO
 import base64
 from functools import wraps
+import sqlite3
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -27,16 +28,48 @@ def convert_state(i):
 # TODO: pickle 파일 저장 제대로 되는지 확인하기
 
 class FlaskAppWrapper():
-    def __init__(self, app, datas, reference_status):
-        self.datas = datas # 이전까지의 측정값 데이터들
-        self.session_new_datas = list() # 이번 세션에서 새롭게 측정한 데이터들을 모을 리스트 -> 앱 종료시 이것만 피클 파일에 이어붙임
-        self.reference_status = reference_status
+    def __init__(self, app):
+    	## self.datas의 구조
+    	# 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
+    	# "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
+    	# self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
+	self.con_data = sqlite3.connect('./data.db')	# DATA 저장용
+	self.con_setting = sqlite3.connect('/setting.db')	# SETTING 저장용
+	self.cur_data = self.con_data.cursor()
+	self.cur_setting = self.con_setting.cursor()
+
+        # 데이터 저장용 테이블 있는지 확인
+        self.cur_data.execute("SELECT measurements FROM sqlite_master WHERE type='table';")
+        data_tables = self.cur_data.fetchall()
+        if data_tables is None :
+	    self.cur_data.execute("""CREATE table measurements(
+				timestamp TEXT PRIMARY KEY,
+				temperature REAL,
+				humidity REAL,
+                                water_level REAL,
+                                first_light_state TEXT,
+                                second_light_state TEXT,
+                                heater_state TEXT,
+                                pump_state TEXT);""");
+            self.con_data.commit()	# 수정사항 반영
+	# 설정 저장용 테이블 있는지 확인
+        self.cur_setting.execute("SELECT settings FROM sqlite_master WHERE type='table';")
+        setting_tables = self.cur_setting.fetchall()
+	if setting_tables is None:
+            self.cur_setting.execute("""CREATE table settings(
+                                       ref_temperature REAL,
+                                       ref_turn_on_time TEXT,
+                                       ref_turn_off_time TEXT);""");
+            self.con_setting.commit()	# 수정사항 반영
+	# 저장된 설정값들 불러오기
+        # -> (ref_temperature, ref_turn_on_time, ref_turn_off_time) 이렇게 받아옴
+        self.reference_status = self.cur_data.execute("SELECT * FROM settings;").fetchone()
 
 
-        ref_temp = self.reference_status['ref_temperature']
+        ref_temp = self.reference_status[0]
         # 켤시각과 끌 시각은 datetime.time형으로 전달해야하기 때문에 문자열에서 datetime.time 형으로 변환함
-        ref_turn_on_time = datetime.strptime(self.reference_status['ref_turn_on_time'], "%H:%M").time()
-        ref_turn_off_time = datetime.strptime(self.reference_status['ref_turn_off_time'], "%H:%M").time()
+        ref_turn_on_time = datetime.strptime(self.reference_status[1], "%H:%M").time()
+        ref_turn_off_time = datetime.strptime(self.reference_status[2], "%H:%M").time()
         print("[app.__init__] 설정된 초기값들")
         print(f"    - 설정 최소 온도 : {ref_temp}")
         print(f"    - 설정된 켜는 시각 : {ref_turn_on_time}")
@@ -99,8 +132,12 @@ class FlaskAppWrapper():
             data_dict = dict(zip(name, [now_str, humidity, temperature, water_level] + states)) # 만든 결과 dict
 
             # 만든 결과를 저장
-            self.datas.append(data_dict) # 기존 데이터들까지 가지고 있는 측정값들 리스트
-            self.session_new_datas.append(data_dict) # 현재 서버 세션에서 새롭게 측정된 측정값들 리스트
+	    self.cur_data.execute(f"""INSERT INTO measurements VALUES ({now_str}, {humidity}, {temperature}, {water_level},
+                                                                       {convert_state(first_light_state)},
+                                                                       {convert_state(second_light_state)},
+                                                                       {convert_state(heater_state)},
+                                                                       {convert_state(pump_state)});""")
+            self.con_data.commit()
 
             # 이전 emit으로부터 30초가 흐를때까지 기다림
               # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep (비동기 멈춤)
@@ -152,10 +189,10 @@ class FlaskAppWrapper():
     @login_required
     def stats(self):
         # 초기 그래프를 그릴 데이터들을 가져옴
-        recent_datas = self.datas[-7:-1]    # 최근 6개 데이터
-        initial_temperatures = [data['temperature'] for data in recent_datas]
-        initial_water_levels = [data['water_level'] for data in recent_datas]
-        initial_humidities = [data['humidity'] for data in recent_datas]
+        recent_datas = self.cur_data.execute("SELECT * FROM measurements ORDER BY timestamp DESC;").fetchmany(6)    # 최근 6개 데이터
+        initial_temperatures = [data[1] for data in recent_datas]
+        initial_humidities = [data[2] for data in recent_datas]
+        initial_water_levels = [data[3] for data in recent_datas]
         print(f"[stats] initial_temperatures :{initial_temperatures}")
         print(f"[stats] initial_water_levels :{initial_water_levels}")
         print(f"[stats] initial_humidities :{initial_humidities}")
@@ -191,6 +228,8 @@ class FlaskAppWrapper():
             self.smartfarm.set_min_temp(temp)
             # CLEANUP : ref보다 setting으로 표현하는게 더 이해하기 쉬운듯. app.py에 사용되는 변수명과 control.html에 쓰이는 변수명들을 모두 바꾸는 것이 어떨까?
             self.reference_status['ref_temperature'] = temp
+	    # UPDATE를 이용해 오직 한개의 레이블만 사용할 것
+            self.cur_setting.execute("""INSERT INTO settings VALUES ()""")
             return redirect(request.referrer)
         except ValueError as e :
             print("[app.set_temp] 허용되지 않은 입력이 존재합니다.")
@@ -213,8 +252,10 @@ class FlaskAppWrapper():
             off_time = datetime.strptime(off_time_str, '%H:%M').time()
             self.smartfarm.set_on_time(on_time)
             self.smartfarm.set_off_time(off_time)
-            self.reference_status['ref_turn_on_time'] = on_time_str
-            self.reference_status['ref_turn_off_time'] = off_time_str
+            self.reference_status[1] = on_time_str
+            self.reference_status[2] = off_time_str
+            self.cur_setting.execute("""INSERT INTO settings VALUES ({self.reference_status[0]}, {on_time_str}, {off_time_str})""")
+            self.con_setting.commit()
             return redirect('/control')
         except ValueError as e :
             print("[app.time_period] 허용되지 않은 입력이 존재합니다.")
@@ -253,12 +294,7 @@ class FlaskAppWrapper():
 
 
 if __name__ == '__main__':
-    # pickle로부터 측정값 가져오기
-    # 읽기모드는 append, byte형 (pickle은 byte형으로 저장한다는게 중요함)
-    ## self.datas의 구조
-    # 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
-    # "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
-    # self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
+    
     with open('measure_data_pickle', 'rb') as data_pickle_file:
         try :
             datas = pickle.load(data_pickle_file)
@@ -280,7 +316,7 @@ if __name__ == '__main__':
                                  'ref_turnon_time_str' :"06:00:00",
                                  'ref_turnoff_time_str' :"18:00:00"}
     # flask 앱과 스마트팜을 wrap한 객체 만들고
-    wrapper = FlaskAppWrapper(app, datas, reference_status)
+    wrapper = FlaskAppWrapper(app)
     # 앱 실행시킴
     socketio.run(app)
 
