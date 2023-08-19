@@ -71,9 +71,9 @@ class FlaskAppWrapper:
 
         # 저장된 설정값들 불러오기
         # -> (ref_temperature, ref_turn_on_time, ref_turn_off_time) 이렇게 받아옴
-        self.reference_status = self.cur_data.execute(
+        self.reference_status = list(self.cur_data.execute(
             "SELECT * FROM settings;"
-        ).fetchone()
+        ).fetchone())
         ref_temp = self.reference_status[0]
         # 켤시각과 끌 시각은 datetime.time형으로 전달해야하기 때문에 문자열에서 datetime.time 형으로 변환함
         ref_turn_on_time = datetime.strptime(self.reference_status[1], "%H:%M").time()
@@ -168,8 +168,9 @@ class FlaskAppWrapper:
                 zip(name, [now_str, humidity, temperature, water_level] + states)
             )  # 만든 결과 dict
 
-            # TEST : measure_and_emit_periodically : 얻어온 결과 DataDB에 저장 작업 되는지 테스트
-            self.cur_data.execute(
+            con_data = sqlite3.connect("./datas.db", check_same_thread=False)
+            cur_data = con_data.cursor() 
+            cur_data.execute(
                 f"""INSERT INTO measurements
                     VALUES (
                         '{now_str}',
@@ -181,7 +182,7 @@ class FlaskAppWrapper:
 		                '{self.convert_state(heater_state)}',
 			            '{self.convert_state(pump_state)}');
                 """)
-            self.con_data.commit()
+            con_data.commit()
 
             # 이전 emit으로부터 30초가 흐를때까지 기다림
             # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep (비동기 멈춤)
@@ -252,7 +253,9 @@ class FlaskAppWrapper:
         '/stats'에 GET 요청이 들어왔을 때 stats.html을 반환하는 view 함수
         """
         # 초기 그래프를 그릴 데이터들을 가져옴
-        recent_datas = self.cur_data.execute(
+        con_data = sqlite3.connect("./datas.db", check_same_thread=False)
+        cur_data = con_data.cursor()
+        recent_datas = cur_data.execute(
             "SELECT * FROM measurements ORDER BY timestamp DESC;"
         ).fetchmany(6)  # 최근 6개 데이터
         con_data.close()
@@ -328,11 +331,14 @@ class FlaskAppWrapper:
             # CLEANUP : ref보다 setting으로 표현하는게 더 이해하기 쉬운듯. app.py에 사용되는 변수명과 control.html에 쓰이는 변수명들을 모두 바꾸는 것이 어떨까?
             # UPDATE를 이용해 오직 한개의 레이블만 사용할 것
             self.reference_status[0] = temp
-            self.cur_setting.execute(
+            con_setting = sqlite3.connect("./settings.db", check_same_thread=False)
+            cur_setting = con_setting.cursor()
+            cur_setting.execute(
                 f"""UPDATE settings
                     SET ref_temperature = {temp:.1f}
                 """)
-            self.con_setting.commit()
+            con_setting.commit()
+            con_setting.close()
             return redirect(request.referrer)
         
         except ValueError as e:
@@ -365,14 +371,17 @@ class FlaskAppWrapper:
             self.smartfarm.set_off_time(off_time)
             self.reference_status[1] = on_time_str
             self.reference_status[2] = off_time_str
-            self.cur_setting.execute(
+            con_setting = sqlite3.connect("./settings.db", check_same_thread=False)
+            cur_setting = con_setting.cursor()
+            cur_setting.execute(
                 f"""
                 UPDATE settings 
                 SET ref_turn_on_time = {on_time_str},
                     ref_tun_off_time = {off_time_str};
                 """
             )
-            self.con_setting.commit()
+            con_setting.commit()
+            con_setting.close()
             return redirect("/control")
         except ValueError as e:
             print("[app.time_period] 허용되지 않은 입력이 존재합니다.")
