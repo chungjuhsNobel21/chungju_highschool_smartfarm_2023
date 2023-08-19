@@ -12,7 +12,7 @@
 	    {% endif %}
             <label for="new_temp_reference"></label>
             <h2>온도</h2>
-            <p>최저온도<input type="number" id="new_temp_reference"name="new_temp_reference"></p>
+            <p>최저온도<input type="number" id="new_temp_reference"name="new_temp_reference" value="{{reference_status.ref_temperature}}"></p>
             <input type="submit">
         </form>
 
@@ -28,15 +28,15 @@
             <label for="new_turn_on_time_reference"></label>
             <label for="new_turn_off_time_reference"></label>
             <h2>시간</h2>
-            <p>불을 키는 시간<input type="time" id="new_turn_on_time_reference" name="new_turn_on_time_reference"></p>
-            <p>불을 꺼는 시간<input type="time" id="new_turn_off_time_reference" name="new_turn_off_time_reference"></p>
+            <p>불을 켜는 시각<input type="time" id="new_turn_on_time_reference" name="new_turn_on_time_reference" value="{{reference_status.ref_turn_on_time}}"></p>
+            <p>불을 끄는 시각<input type="time" id="new_turn_off_time_reference" name="new_turn_off_time_reference" value="{{reference_status.ref_turn_off_time}}"></p>
 
             <input type="submit">
         </form>
     <!--위에가 동우가 짠 기본값 설정-->
         
-        <h2>최저온도/현재온도 : {{reference_status.ref_temperature}} / {{cur_status.cur_temperature}}</h2>
-        <h2>설정 점등/소등 시간 : {{reference_status.ref_turn_on_time}} / {{reference_status.ref_turn_off_time}}</h2>
+        <h2>설정 최저온도 / 현재온도 : {{reference_status.ref_temperature}} / {{cur_status.cur_temperature}}</h2>
+        <h2>설정 점등 / 소등 시각 : {{reference_status.ref_turn_on_time}} / {{reference_status.ref_turn_off_time}}</h2>
         <!--아래는 아마 이 양식 그대로 쭉 쓸거같음. 제대로 작동되는지 테스트해보고 알려주면 다 작성해서 다시 올릴께-->
         
         

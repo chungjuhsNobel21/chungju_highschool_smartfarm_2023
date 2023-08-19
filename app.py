@@ -23,17 +23,18 @@ class FlaskAppWrapper:
         # 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
         # "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
         # self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
-        self.con_data = sqlite3.connect("./data.db")  # DATA 저장용
-        self.con_setting = sqlite3.connect("/setting.db")  # SETTING 저장용
+        self.con_data = sqlite3.connect("./datas.db")  # DATA 저장용
+        self.con_setting = sqlite3.connect("./settings.db")  # SETTING 저장용
         self.cur_data = self.con_data.cursor()
         self.cur_setting = self.con_setting.cursor()
 
         # 데이터 저장용 테이블 있는지 확인
         self.cur_data.execute(
-            "SELECT measurements FROM sqlite_master WHERE type='table';"
+            "SELECT count(name) FROM sqlite_master WHERE type='table' AND name = 'measurements';"
         )
-        data_tables = self.cur_data.fetchall()
-        if data_tables is None:
+        count_data_table = self.cur_data.fetchone()[0]
+        if count_data_table == 0:
+            print("[app.__init__] : datas.db에 measurements 테이블이 존재하지 않습니다!")
             self.cur_data.execute(
                 """CREATE table measurements(
 								timestamp TEXT PRIMARY KEY,
@@ -46,34 +47,46 @@ class FlaskAppWrapper:
 								pump_state TEXT);"""
             )
             self.con_data.commit()  # 수정사항 반영
+        else :
+            print("[app.__init__]: datas.db에 measurements 테이블이 존재합니다.")
 
         # 설정 저장용 테이블 있는지 확인
         self.cur_setting.execute(
-            "SELECT settings FROM sqlite_master WHERE type='table';"
+            "SELECT count(name) FROM sqlite_master WHERE type='table' AND name='settings';"
         )
-        setting_tables = self.cur_setting.fetchall()
-        if setting_tables is None:  # 만약 설정 저장용 테이블 없으면 만들고 기본값 넣음
+        count_setting_table = self.cur_setting.fetchone()[0]
+        if count_setting_table == 0:  # 만약 설정 저장용 테이블 없으면 만들고 기본값 넣음
+            print("[app.__init__]: settings.db에 settings 테이블이 존재하지 않습니다!")
             self.cur_setting.execute(
                 """CREATE table settings(
-                                       ref_temperature REAL,
-									   ref_turn_on_time TEXT,
-									   ref_turn_off_time TEXT);"""
+                                        ref_temperature REAL,
+				        ref_turn_on_time TEXT,
+				        ref_turn_off_time TEXT);"""
             )
+            self.con_setting.commit()  # 수정사항 반영
             default_min_temp_str = DEFAULT_MIN_TEMP
             default_on_time_str = DEFAULT_ON_TIME.strftime("%H:%M")
             default_off_time_str = DEFAULT_OFF_TIME.strftime("%H:%M")
-            self.cur_setting.execute(
-                f"""INSERT INTO settings(
-                    ref_temperature,
-                    ref_turn_on_time, ref_turn_off_time)
-                    VALUES ({default_min_temp_str}, {default_on_time_str}, {default_off_time_str})""")
+            query = f"""INSERT INTO settings(
+                        ref_temperature,
+                        ref_turn_on_time,
+                        ref_turn_off_time)
+                    VALUES(
+                        {default_min_temp_str},
+                        '{default_on_time_str}',
+                        '{default_off_time_str}');
+                 """
+            self.cur_setting.execute(query)
             self.con_setting.commit()  # 수정사항 반영
+        else :
+            print("[app.__init__]: settings.db에 settings 테이블이 존재합니다.")
+
 
         # 저장된 설정값들 불러오기
         # -> (ref_temperature, ref_turn_on_time, ref_turn_off_time) 이렇게 받아옴
-        self.reference_status = self.cur_data.execute(
+        self.reference_status = list(self.cur_setting.execute(
             "SELECT * FROM settings;"
-        ).fetchone()
+        ).fetchone())
         ref_temp = self.reference_status[0]
         # 켤시각과 끌 시각은 datetime.time형으로 전달해야하기 때문에 문자열에서 datetime.time 형으로 변환함
         ref_turn_on_time = datetime.strptime(self.reference_status[1], "%H:%M").time()
@@ -133,6 +146,8 @@ class FlaskAppWrapper:
         """
         30초에 한번씩 주기적으로 스마트팜의 측정값들을 갱신하고 얻은 측정값들을 'give_data'란 이벤트 이름으로 emit하는 스레드용 함수
         """
+        con_data = sqlite3.connect("./datas.db", check_same_thread = False)  # 다른 스레드에서 쓰기 위한 Data 저장용 DB connection을 하나 더 만듬.. 그냥 self.con_data 객체 쓰면 오류나더라고
+        cur_data = con_data.cursor()
         while True:
             print("[app.measure_and_emit_periodically() 실행됨]")
             start_time = time.time()
@@ -169,19 +184,19 @@ class FlaskAppWrapper:
             )  # 만든 결과 dict
 
             # TEST : measure_and_emit_periodically : 얻어온 결과 DataDB에 저장 작업 되는지 테스트
-            self.cur_data.execute(
+            cur_data.execute(
                 f"""INSERT INTO measurements
                     VALUES (
-                        {now_str},
-                        {humidity},
-                        {temperature},
-                        {water_level},
-						{self.convert_state(first_light_state)},
-						{self.convert_state(second_light_state)},
-						{self.convert_state(heater_state)},
-						{self.convert_state(pump_state)});
+                        '{now_str}',
+                        {humidity:.1f},
+                        {temperature:.1f},
+                        {water_level:.1f},
+			'{self.convert_state(first_light_state)}',
+			'{self.convert_state(second_light_state)}',
+		        '{self.convert_state(heater_state)}',
+			'{self.convert_state(pump_state)}');
                 """)
-            self.con_data.commit()
+            con_data.commit()
 
             # 이전 emit으로부터 30초가 흐를때까지 기다림
             # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep (비동기 멈춤)
@@ -252,17 +267,18 @@ class FlaskAppWrapper:
         '/stats'에 GET 요청이 들어왔을 때 stats.html을 반환하는 view 함수
         """
         # 초기 그래프를 그릴 데이터들을 가져옴
-        recent_datas = self.cur_data.execute(
+        con_data = sqlite3.connect('./datas.db', check_same_thread = False)
+        cur_data = con_data.cursor()
+        recent_datas = cur_data.execute(
             "SELECT * FROM measurements ORDER BY timestamp DESC;"
-        ).fetchmany(
-            6
-        )  # 최근 6개 데이터
-        initial_temperatures = [data[1] for data in recent_datas]
-        initial_humidities = [data[2] for data in recent_datas]
+        ).fetchmany(6)  # 최근 6개 데이터
+        con_data.close()
+        initial_humidities = [data[1] for data in recent_datas]
+        initial_temperatures = [data[2] for data in recent_datas]
         initial_water_levels = [data[3] for data in recent_datas]
+        print(f"[stats] initial_humidities :{initial_humidities}")
         print(f"[stats] initial_temperatures :{initial_temperatures}")
         print(f"[stats] initial_water_levels :{initial_water_levels}")
-        print(f"[stats] initial_humidities :{initial_humidities}")
         # 맨 처음 stats.html을 서버에서 보내줄 때 초기 그래프에 표시될 데이터를 같이 주면
         # stats.html 자바스크립트 부분 초기 데이터 템플릿에 들어감
         return render_template(
@@ -289,12 +305,16 @@ class FlaskAppWrapper:
         }
 
         print(f"cur_status : {cur_status}")
-        print(f"self.reference_status : {self.reference_status}")
+        reference_status = dict()
+        reference_status['ref_temperature'] = self.reference_status[0]
+        reference_status['ref_turn_on_time'] = self.reference_status[1]
+        reference_status['ref_turn_off_time'] = self.reference_status[2]
+        print(f"reference_status : {reference_status}")
         return render_template(
             "control.html",
             code=True,
             cur_status=cur_status,
-            reference_status=self.reference_status,
+            reference_status=reference_status
         )
 
     @login_required
@@ -310,11 +330,14 @@ class FlaskAppWrapper:
             # CLEANUP : ref보다 setting으로 표현하는게 더 이해하기 쉬운듯. app.py에 사용되는 변수명과 control.html에 쓰이는 변수명들을 모두 바꾸는 것이 어떨까?
             # UPDATE를 이용해 오직 한개의 레이블만 사용할 것
             self.reference_status[0] = temp
-            self.cur_setting.execute(
+            con_setting = sqlite3.connect('./settings.db', check_same_thread = False)
+            cur_setting = con_setting.cursor()
+            cur_setting.execute(
                 f"""UPDATE settings
                     SET ref_temperature = {temp:.1f}
                 """)
-            self.con_setting.commit()
+            con_setting.commit()
+            con_setting.close()
             return redirect(request.referrer)
         
         except ValueError as e:
@@ -343,18 +366,22 @@ class FlaskAppWrapper:
             # smartfarm에는 datetime.datetime 형으로 넘겨줘야해서 형변환 시켜줌
             on_time = datetime.strptime(on_time_str, "%H:%M").time()
             off_time = datetime.strptime(off_time_str, "%H:%M").time()
+            # 다른 스레드에서는 또다른 커넥션 객체를 만들어 작업해주어야함..
+            con_setting = sqlite3.connect('./settings.db', check_same_thread = False)
+            cur_setting = con_setting.cursor()
             self.smartfarm.set_on_time(on_time)
             self.smartfarm.set_off_time(off_time)
             self.reference_status[1] = on_time_str
             self.reference_status[2] = off_time_str
-            self.cur_setting.execute(
+            cur_setting.execute(
                 f"""
                 UPDATE settings 
-                SET ref_turn_on_time = {on_time_str},
-                    ref_tun_off_time = {off_time_str};
+                SET ref_turn_on_time = '{on_time_str}',
+                    ref_turn_off_time = '{off_time_str}';
                 """
             )
-            self.con_setting.commit()
+            con_setting.commit()
+            con_setting.close()
             return redirect("/control")
         except ValueError as e:
             print("[app.time_period] 허용되지 않은 입력이 존재합니다.")
