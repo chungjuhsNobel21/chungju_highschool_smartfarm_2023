@@ -30,14 +30,14 @@ body {
 .state_container {
   display: flex;
   max-width: 80%;
-  margin: 0 auto;
+  margin: 50px auto 0 auto;
   justify-content: space-between;
 }
 
 .button_container {
   display: flex;
   max-width: 30%;
-  margin: 0 auto;
+  margin: 50px auto 0 auto;
   justify-content: space-between;
 }
 
