@@ -1,131 +1,194 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>Show The Graph</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js" ></script>
-    <style>
-        #line-chart {
-            width: 300px;
-            height: 250px;
-        }
-    </style>
-</head>
-<body>
-    <button onclick="window.location.href='/control.html'">CONTROL</button>
-    <button onclick="window.location.href='/streaming.html'">STREAMING</button>	
-    <h2>Temparture Graph</h2>
-    <canvas id="lineChart1"></canvas>
-    <h2>Water Height Graph</h2>
-    <canvas id="lineChart2"></canvas>
-    <h2>Humidity</h2>
-    <canvas id="lineChart3"></canvas>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link
+      rel="stylesheet"
+      href="/static/stats.css"
+      type="text/css"
+    />
+  </head>
+  <body>
+    <div class="graph-container-container">
+      <div class="graph-container">
+        <h2>온도</h2>
+        <canvas class="chart-canvas" id="lineChart1"></canvas>
+        <p class="graph-text" id="temp_text">{{temp}}</p>
+      </div>
+      <div class="graph-container">
+        <h2>수위</h2>
+        <canvas class="chart-canvas" id="lineChart2"></canvas>
+        <p class="graph-text" id="water_level_text">{{water_level}}</p>
+      </div>
+      <div class="graph-container">
+        <h2>습도</h2>
+        <canvas class="chart-canvas" id="lineChart3"></canvas>
+        <p class="graph-text" id="humid_text">{{humid}}</p>
+      </div>
+    </div>
+    <div class="state_container">
+      <span id="heater_state_text" class="state_text"
+        >히터 : {{heater_state}}</span
+      >
+      <span id="pump_state_text" class="state_text">펌프 : {{pump_state}}</span>
+      <span id="led_first_state_text" class="state_text"
+        >1층 LED : {{led_first_state}}</span
+      >
+      <span id="led_second_state_text" class="state_text"
+        >2층 LED : {{led_second_state}}</span
+      >
+    </div>
+    <p class="recent_timestamp" id="recent_timestamp_text">최근 데이터 불러온 시각 : {{recent_timestamp | safe}}</p>
+
+    <div class="button_container">
+      <a href="/control">
+        <button>Control</button>
+      </a>
+      <a href="/streaming">
+        <button>Streaming</button>
+      </a>
+    </div>
     <script>
-        var socket = io();
-        // data = {"temperature" : (온도), 
-        // "humidity" : (습도), "water_level" : (수위),
-        // "first_light_state" : (1층 불상태 ('ON'/'OFF')),
-        // "second_light_state" : (2층 불상태),
-        //"heater_state" : (히터 상태 ('ON'/'OFF')) }
-        // TODO(정우): 전등, 히터, 상태 보여줘야할 것 보여주기
-        // TODO (정우) : 버튼 만들어서 /control 로 리디렉션하도록 GET 요청 보내기
-        // TODO (정우) : 버튼 만들어서 /streaming 로 리디렉션하도록 GET 요청 보내기
+      var socket = io();
+      // data = {
+      // "recent_timestamp" : (최근 데이터 얻은 시각 str형)
+      // "temperature" : (온도),
+      // "humidity" : (습도), "water_level" : (수위),
+      // "led_first_state" : (1층 불상태 ('ON'/'OFF')),
+      // "led_second_state" : (2층 불상태),
+      //"heater_state" : (히터 상태 ('ON'/'OFF')) }
+      // TODO(정우): 전등, 히터, 상태 보여줘야할 것 보여주기
+      // TODO (정우) : 버튼 만들어서 /control 로 리디렉션하도록 GET 요청 보내기
+      // TODO (정우) : 버튼 만들어서 /streaming 로 리디렉션하도록 GET 요청 보내기
 
-	var ctx1 = document.getElementById("lineChart1").getContext('2d');
-        var lineChart1 = new Chart(ctx1, {
-            type: 'line',
-            data: {
-                labels: [10,20,30,40,50,60],
-                datasets: [{ 
-                    data: {{initial_temperatures}},
-                    label: "온도",
-                    borderColor: "#3e95cd",
-                    fill: false
-                            }]
-                    },
-            options: {
-                title: {
-                    display: true,
-                    text: 'temperature'
-                }
-            }
+      var ctx1 = document.getElementById("lineChart1").getContext("2d");
+      var lineChart1 = new Chart(ctx1, {
+        type: "line",
+        data: {
+          labels: {{recent_timestamps | safe}}, // 따옴표가 들어있는 timestamp의 경우 '를 &39로 치환하는 것을 방지하기 위해 |safe 옵션을 줌
+          datasets: [
+            {
+              data: {{initial_temperatures}},
+              label: "온도",
+              borderColor: "#3e95cd",
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          title: {
+            display: false,
+            text: "temperature",
+          },
+        },
+      });
+
+      var ctx2 = document.getElementById("lineChart2").getContext("2d");
+      var lineChart2 = new Chart(ctx2, {
+        type: "line",
+        data: {
+          labels: {{recent_timestamps | safe}},
+          datasets: [
+            {
+              data: {{initial_heights}},
+              label: "물의 높이",
+              borderColor: "#8e5ea2",
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          title: {
+            display: false,
+            text: "height",
+          },
+        },
+      });
+
+      var ctx3 = document.getElementById("lineChart3").getContext("2d");
+      var lineChart3 = new Chart(ctx3, {
+        type: "line",
+        data: {
+          labels: {{recent_timestamps | safe}},
+          datasets: [
+            {
+              data: {{initial_humidities}},
+              label: "습도",
+              borderColor: "#3cba9f",
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          title: {
+            display: false,
+            text: "humidity",
+          },
+        },
+      });
+
+      function addData1(temperature, timestamp) {
+        lineChart1.data.datasets.forEach((dataset) => {
+          dataset.data.shift();
+          dataset.data.push(temperature);
         });
+        lineChart1.data.labels.shift();
+        lineChart1.data.labels.push(timestamp);
+        lineChart1.update();
+      }
 
-	var ctx2 = document.getElementById("lineChart2").getContext('2d');
-        var lineChart2 = new Chart(ctx2, {
-            type: 'line',
-            data: {
-                labels: [10,20,30,40,50,60],
-                datasets: [{ 
-                    data: {{initial_heights}},
-                    label: "물의 높이",
-                    borderColor: "#8e5ea2",
-                    fill: false
-                            }]
-                    },
-            options: {
-                title: {
-                    display: true,
-                    text: 'height'
-                }
-            }
-        });		
-
-	var ctx3 = document.getElementById("lineChart3").getContext('2d');
-        var lineChart3 = new Chart(ctx3, {
-            type: 'line',
-            data: {
-                labels: [10,20,30,40,50,60],
-                datasets: [{ 
-                    data: {{initial_humidities}},
-                    label: "습도",
-                    borderColor: "#3cba9f",
-                    fill: false
-                            }]
-                    },
-            options: {
-                title: {
-                    display: true,
-                    text: 'humidity'
-                }
-            }
+      function addData2(height, timestamp) {
+        lineChart2.data.datasets.forEach((dataset) => {
+          dataset.data.shift();
+          dataset.data.push(height);
         });
+        lineChart2.data.labels.shift();
+        lineChart2.data.labels.push(timestamp);
+        lineChart2.update();
+      }
 
-        function addData1(temperature) {
-            lineChart1.data.datasets.forEach((dataset) => {
-                dataset.data.shift();
-                dataset.data.push(temperature);
-            });
-            lineChart1.update();
-        }
-
-	function addData2(height) {
-            lineChart2.data.datasets.forEach((dataset) => {
-                dataset.data.shift();
-                dataset.data.push(height);
-            });
-            lineChart2.update();
-        }
-
-	function addData3(humidity) {
-            lineChart3.data.datasets.forEach((dataset) => {
-                dataset.data.shift();
-                dataset.data.push(humidity);
-            });
-            lineChart3.update();
-        }
-
-	socket.on("give_data", function(msg){
-            console.log("Received timestamp::"+msg.timestamp);
-            console.log("Received temperature::"+msg.temperature);
-            console.log("Received water_level::"+msg.water_level);
-            console.log("Received humidity::"+msg.humidity);
-            addData1(msg.temperature)
-            addData2(msg.water_level)
-            addData3(msg.humidity)
+      function addData3(humidity, timestamp) {
+        lineChart3.data.datasets.forEach((dataset) => {
+          dataset.data.shift();
+          dataset.data.push(humidity);
         });
-	
+        lineChart3.data.labels.shift();
+        lineChart3.data.labels.push(timestamp);
+        lineChart3.update();
+      }
 
+      var temp_text = document.getElementById("temp_text");
+      var water_level_text = document.getElementById("water_level_text");
+      var humid_text = document.getElementById("humid_text");
+      var heater_text = document.getElementById("heater_state_text");
+      var pump_text = document.getElementById("pump_state_text");
+      var led_first_text = document.getElementById("led_first_state_text");
+      var led_second_text = document.getElementById("led_second_state_text");
+
+      function updateValues(msg) {
+        // ` (back-tick)을 사용한 JS 템플릿 리터럴 문법 사용함
+        temp_text.textContent = `${msg.temperature}°C`;
+        water_level_text.textContent = `${msg.water_level}cm`;
+        humid_text.textContent = `${msg.humidity}%`;
+        heater_text.textContent = `히터 : ${msg.heater_state}`;
+        pump_text.textContent = `펌프 : ${msg.pump_state}`;
+        led_first_state_text.textContent = `1층 LED : ${msg.led_first_state}`;
+        led_second_state_text.textContent = `2층 LED : ${msg.led_second_state}`;
+        recent_timestamp_text.textContent = `최근 데이터 불러온 시각 ${msg.recent_timestamp}`
+      }
+
+      socket.on("give_data", function (msg) {
+        console.log("Received recent_timestamp:" + msg.recent_timestamp);
+        console.log("Received temperature:" + msg.temperature);
+        console.log("Received water_level:" + msg.water_level);
+        console.log("Received humidity:" + msg.humidity);
+        addData1(msg.temperature, msg.recent_timestamp);
+        addData2(msg.water_level, msg.recent_timestamp);
+        addData3(msg.humidity, msg.recent_timestamp);
+        updateValues(msg);
+      });
     </script>
-</body>
+  </body>
 </html>

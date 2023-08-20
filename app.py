@@ -21,7 +21,7 @@ class FlaskAppWrapper:
     def __init__(self, app):
         ## self.datas의 구조
         # 개별 data의 구조는 {"timestamp" : "2023.08.08 07:11:09"와 같은 형태의 문자열, "temperature":float, "humidity":float, "water_level" : float
-        # "first_light_state" : str ('ON'/'OFF'), "second_light_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
+        # "led_first_state" : str ('ON'/'OFF'), "led_second_state" : str ('ON'/'OFF'), "heater_state" : str ('ON'/'OFF'), "pump_state" : str ('ON'/'OFF')}
         # self.datas는 위 개별 data들'을 시간순서대로 모아둔 list임
         self.con_data = sqlite3.connect("./datas.db")  # DATA 저장용
         self.con_setting = sqlite3.connect("./settings.db")  # SETTING 저장용
@@ -41,8 +41,8 @@ class FlaskAppWrapper:
 								temperature REAL,
 								humidity REAL,
 								water_level REAL,
-								first_light_state TEXT,
-								second_light_state TEXT,
+								led_first_state TEXT,
+								led_second_state TEXT,
 								heater_state TEXT,
 								pump_state TEXT);"""
             )
@@ -80,7 +80,6 @@ class FlaskAppWrapper:
             self.con_setting.commit()  # 수정사항 반영
         else :
             print("[app.__init__]: settings.db에 settings 테이블이 존재합니다.")
-
 
         # 저장된 설정값들 불러오기
         # -> (ref_temperature, ref_turn_on_time, ref_turn_off_time) 이렇게 받아옴
@@ -158,8 +157,8 @@ class FlaskAppWrapper:
             temperature = self.smartfarm.get_temperature()
             humidity = self.smartfarm.get_humidity()
             water_level = self.smartfarm.get_water_level()
-            first_light_state = self.smartfarm.get_led_first_state()
-            second_light_state = self.smartfarm.get_led_second_state()
+            led_first_state = self.smartfarm.get_led_first_state()
+            led_second_state = self.smartfarm.get_led_second_state()
             heater_state = self.smartfarm.get_heater_state()
             pump_state = self.smartfarm.get_pump_state()
 
@@ -167,23 +166,24 @@ class FlaskAppWrapper:
             now = datetime.now()
             now_str = now.strftime("%Y.%m.%d %H:%M:%S")
             name = [
-                "timestamp",
+                "recent_timestamp",
                 "humidity",
                 "temperature",
                 "water_level",
-                "first_light_state",
-                "second_light_state",
+                "led_first_state",
+                "led_second_state",
                 "heater_state",
                 "pump_state",
             ]
             states = list(
-                map(self.convert_state, [first_light_state, second_light_state, heater_state, pump_state])
+                map(self.convert_state, [led_first_state, led_second_state, heater_state, pump_state])
             )
             data_dict = dict(
                 zip(name, [now_str, humidity, temperature, water_level] + states)
             )  # 만든 결과 dict
 
-            # TEST : measure_and_emit_periodically : 얻어온 결과 DataDB에 저장 작업 되는지 테스트
+            con_data = sqlite3.connect("./datas.db", check_same_thread=False)
+            cur_data = con_data.cursor() 
             cur_data.execute(
                 f"""INSERT INTO measurements
                     VALUES (
@@ -191,10 +191,10 @@ class FlaskAppWrapper:
                         {humidity:.1f},
                         {temperature:.1f},
                         {water_level:.1f},
-			'{self.convert_state(first_light_state)}',
-			'{self.convert_state(second_light_state)}',
-		        '{self.convert_state(heater_state)}',
-			'{self.convert_state(pump_state)}');
+			                  '{self.convert_state(led_first_state)}',
+			                  '{self.convert_state(led_second_state)}',
+                        '{self.convert_state(heater_state)}',
+			                  '{self.convert_state(pump_state)}');
                 """)
             con_data.commit()
 
@@ -267,25 +267,48 @@ class FlaskAppWrapper:
         '/stats'에 GET 요청이 들어왔을 때 stats.html을 반환하는 view 함수
         """
         # 초기 그래프를 그릴 데이터들을 가져옴
-        con_data = sqlite3.connect('./datas.db', check_same_thread = False)
+        con_data = sqlite3.connect("./datas.db", check_same_thread=False)
         cur_data = con_data.cursor()
         recent_datas = cur_data.execute(
             "SELECT * FROM measurements ORDER BY timestamp DESC;"
         ).fetchmany(6)  # 최근 6개 데이터
         con_data.close()
+
+        recent_datas.reverse()
+        recent_timestamps = [data[0] for data in recent_datas]
+        recent_timestamp = recent_timestamps[-1]
         initial_humidities = [data[1] for data in recent_datas]
         initial_temperatures = [data[2] for data in recent_datas]
         initial_water_levels = [data[3] for data in recent_datas]
-        print(f"[stats] initial_humidities :{initial_humidities}")
-        print(f"[stats] initial_temperatures :{initial_temperatures}")
-        print(f"[stats] initial_water_levels :{initial_water_levels}")
+
+        led_first_state = self.convert_state(self.smartfarm.get_led_first_state())
+        led_second_state = self.convert_state(self.smartfarm.get_led_second_state())
+        heater_state = self.convert_state(self.smartfarm.get_heater_state())
+        pump_state = self.convert_state(self.smartfarm.get_pump_state())
+
+
+        print(f"[app.stats (GET)] : 화면에 표시할 데이터들을 출력합니다 : ")
+        print(f"    recent_timestamp :{recent_timestamp}")
+        print(f"    initial_humidities :{initial_humidities}")
+        print(f"    initial_temperatures :{initial_temperatures}")
+        print(f"    initial_water_levels :{initial_water_levels}")
+        print(f"    led_first_state : {led_first_state}")
+        print(f"    led_second_state : {led_second_state}")
+        print(f"    heater_state : {heater_state}")
+        print(f"    pump_state : {pump_state
         # 맨 처음 stats.html을 서버에서 보내줄 때 초기 그래프에 표시될 데이터를 같이 주면
         # stats.html 자바스크립트 부분 초기 데이터 템플릿에 들어감
         return render_template(
             "stats.html",
+            recent_timestamps = recent_timestamps,
+            recent_timestamp = recent_timestamp,
             initial_temperatures=initial_temperatures,
             initial_heights=initial_water_levels,
             initial_humidities=initial_humidities,
+            led_first_state = led_first_state,
+            led_second_state = led_second_state,
+            heater_state = heater_state,
+            pump_state = pump_state,
         )
 
     @login_required
@@ -304,6 +327,11 @@ class FlaskAppWrapper:
             "cur_pump_state": self.smartfarm.get_pump_state(),
         }
 
+        reference_status = {
+            "ref_temperature" : self.reference_status[0],
+            "ref_turn_on_time" : self.reference_status[1],
+            "ref_turn_off_time" : self.reference_status[2],
+        }
         print(f"cur_status : {cur_status}")
         reference_status = dict()
         reference_status['ref_temperature'] = self.reference_status[0]
@@ -314,7 +342,6 @@ class FlaskAppWrapper:
             "control.html",
             code=True,
             cur_status=cur_status,
-            reference_status=reference_status
         )
 
     @login_required
@@ -373,6 +400,8 @@ class FlaskAppWrapper:
             self.smartfarm.set_off_time(off_time)
             self.reference_status[1] = on_time_str
             self.reference_status[2] = off_time_str
+            con_setting = sqlite3.connect("./settings.db", check_same_thread=False)
+            cur_setting = con_setting.cursor()
             cur_setting.execute(
                 f"""
                 UPDATE settings 
