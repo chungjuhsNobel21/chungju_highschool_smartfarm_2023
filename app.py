@@ -295,7 +295,7 @@ class FlaskAppWrapper:
         print(f"    led_first_state : {led_first_state}")
         print(f"    led_second_state : {led_second_state}")
         print(f"    heater_state : {heater_state}")
-        print(f"    pump_state : {pump_state
+        print(f"    pump_state : {pump_state}")
         # 맨 처음 stats.html을 서버에서 보내줄 때 초기 그래프에 표시될 데이터를 같이 주면
         # stats.html 자바스크립트 부분 초기 데이터 템플릿에 들어감
         return render_template(
@@ -342,6 +342,7 @@ class FlaskAppWrapper:
             "control.html",
             code=True,
             cur_status=cur_status,
+            reference_status = reference_status
         )
 
     @login_required
