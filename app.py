@@ -265,7 +265,10 @@ class FlaskAppWrapper:
             "SELECT * FROM measurements ORDER BY timestamp DESC;"
         ).fetchmany(6)  # 최근 6개 데이터
         con_data.close()
-        
+
+        recent_datas.reverse()
+        recent_timestamps = [data[0] for data in recent_datas]
+        recent_timestamp = recent_timestamps[-1]
         initial_humidities = [data[1] for data in recent_datas]
         initial_temperatures = [data[2] for data in recent_datas]
         initial_water_levels = [data[3] for data in recent_datas]
@@ -274,7 +277,7 @@ class FlaskAppWrapper:
         led_second_state = self.convert_state(self.smartfarm.get_led_second_state())
         heater_state = self.convert_state(self.smartfarm.get_heater_state())
         pump_state = self.convert_state(self.smartfarm.get_pump_state())
-        recent_timestamp = recent_datas[5][0]
+
 
         print(f"[app.stats (GET)] : 화면에 표시할 데이터들을 출력합니다 : ")
         print(f"    recent_timestamp :{recent_timestamp}")
@@ -289,6 +292,7 @@ class FlaskAppWrapper:
         # stats.html 자바스크립트 부분 초기 데이터 템플릿에 들어감
         return render_template(
             "stats.html",
+            recent_timestamps = recent_timestamps,
             recent_timestamp = recent_timestamp,
             initial_temperatures=initial_temperatures,
             initial_heights=initial_water_levels,

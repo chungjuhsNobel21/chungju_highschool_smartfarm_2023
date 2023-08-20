@@ -40,7 +40,7 @@
         >2층 LED : {{led_second_state}}</span
       >
     </div>
-    <p class="recent_timestamp" id="recent_timestamp_text">최근 데이터 불러온 시각 : {{recent_timestamp}}</p>
+    <p class="recent_timestamp" id="recent_timestamp_text">최근 데이터 불러온 시각 : {{recent_timestamp | safe}}</p>
 
     <div class="button_container">
       <a href="/control">
@@ -67,7 +67,7 @@
       var lineChart1 = new Chart(ctx1, {
         type: "line",
         data: {
-          labels: [10, 20, 30, 40, 50, 60],
+          labels: {{recent_timestamps | safe}}, // 따옴표가 들어있는 timestamp의 경우 '를 &39로 치환하는 것을 방지하기 위해 |safe 옵션을 줌
           datasets: [
             {
               data: {{initial_temperatures}},
@@ -79,7 +79,7 @@
         },
         options: {
           title: {
-            display: true,
+            display: false,
             text: "temperature",
           },
         },
@@ -89,7 +89,7 @@
       var lineChart2 = new Chart(ctx2, {
         type: "line",
         data: {
-          labels: [10, 20, 30, 40, 50, 60],
+          labels: {{recent_timestamps | safe}},
           datasets: [
             {
               data: {{initial_heights}},
@@ -101,7 +101,7 @@
         },
         options: {
           title: {
-            display: true,
+            display: false,
             text: "height",
           },
         },
@@ -111,7 +111,7 @@
       var lineChart3 = new Chart(ctx3, {
         type: "line",
         data: {
-          labels: [10, 20, 30, 40, 50, 60],
+          labels: {{recent_timestamps | safe}},
           datasets: [
             {
               data: {{initial_humidities}},
@@ -123,33 +123,39 @@
         },
         options: {
           title: {
-            display: true,
+            display: false,
             text: "humidity",
           },
         },
       });
 
-      function addData1(temperature) {
+      function addData1(temperature, timestamp) {
         lineChart1.data.datasets.forEach((dataset) => {
           dataset.data.shift();
           dataset.data.push(temperature);
         });
+        lineChart1.data.labels.shift();
+        lineChart1.data.labels.push(timestamp);
         lineChart1.update();
       }
 
-      function addData2(height) {
+      function addData2(height, timestamp) {
         lineChart2.data.datasets.forEach((dataset) => {
           dataset.data.shift();
           dataset.data.push(height);
         });
+        lineChart2.data.labels.shift();
+        lineChart2.data.labels.push(timestamp);
         lineChart2.update();
       }
 
-      function addData3(humidity) {
+      function addData3(humidity, timestamp) {
         lineChart3.data.datasets.forEach((dataset) => {
           dataset.data.shift();
           dataset.data.push(humidity);
         });
+        lineChart3.data.labels.shift();
+        lineChart3.data.labels.push(timestamp);
         lineChart3.update();
       }
 
@@ -178,9 +184,9 @@
         console.log("Received temperature:" + msg.temperature);
         console.log("Received water_level:" + msg.water_level);
         console.log("Received humidity:" + msg.humidity);
-        addData1(msg.temperature);
-        addData2(msg.water_level);
-        addData3(msg.humidity);
+        addData1(msg.temperature, msg.recent_timestamp);
+        addData2(msg.water_level, msg.recent_timestamp);
+        addData3(msg.humidity, msg.recent_timestamp);
         updateValues(msg);
       });
     </script>
