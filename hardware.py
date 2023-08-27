@@ -13,11 +13,11 @@ import board
 import base64
 
 # 핀 배치들을 변수로 저장해둠
-pin_led_first_floor = 26
-pin_led_second_floor = 19
-pin_heater = 6
-pin_pump = 13
-pin_dhts = [21, 20, 16, 12]
+pin_led_first_floor = 23
+pin_led_second_floor = 19                                                                                                     
+pin_heater = 17
+pin_pump = 16
+pin_dhts = [26, 4, 18, 21]
 
 
 # 사용자 설정값이 주어지지 않았을 경우 사용할 기본값
@@ -70,9 +70,8 @@ class SmartFarmDevice:
         self.spi.open(0, 0)
         self.spi.max_speed_hz = 1000000
 
-        #  카메라 관련
-        # TODO: 라즈베리파이 카메라 고치면 주석 풀고 카메라 쓰이는 기능들 사용하기
-        # self.camera = picamera.PiCamera()
+        #  TODO: 카메라 관련 주석 풀기
+        #self.camera = picamera.PiCamera()
         self.stream = BytesIO()
 
         # 사용자의 설정값을 지정함
@@ -310,7 +309,7 @@ class SmartFarmDevice:
         print(f"[set_led_first_state] : 1층 LED 상태를 {self.led_first_state}로 설정합니다.")
         self._led_first_update()  # 실제 led 상태 업데이트
 
-    def set_led_second_state(self, state: list):
+    def set_led_second_state(self, state):
         """
         2층 전구 상태 self.led_second_state 지정하고 그에 맞게 전구를 켜거나 끄는 함수
         - state : 설정할 펌프의 상태 (GPIO.HIGH/GPIO.LOW)
@@ -382,21 +381,21 @@ class SmartFarmDevice:
         #        -save_to_file : True로 설정되면 f"./captured_images/{datetime.now().strftime('%Y.%m.%d_%H:%M:%S')}.jpeg"로 파일을 저장
         print(f"[hardware.get_image({save_to_file}) 실행됨]")
 
-    #
-    #        photo_width = 600
-    #        photo_height = 600
-    #        self.camera.capture(self.stream, format='jpeg')
-    #        self.stream.seek(0)
-    #        encoded_image = self.stream.getvalue()
-    #        self.stream.seek(0)
-    #        if save_to_file == True :
-    #            with Image.open(self.stream) as img :
-    #                image_path = './captured_images/'
-    #                image_filename = f"{datetime.now().strftime('%Y.%m.%d_%H:%M:%S')}.jpeg"
-    #                img.save(image_path + image_filename)
-    #            self.stream.seek(0)
-    #
-    #        return encoded_image
+
+        photo_width = 600
+        photo_height = 600
+        #self.camera.capture(self.stream, format='jpeg')
+        #self.stream.seek(0)
+        encoded_image = self.stream.getvalue()
+        #self.stream.seek(0)
+        if save_to_file == True :
+            with Image.open(self.stream) as img :
+                image_path = './captured_images/'
+                image_filename = f"{datetime.now().strftime('%Y.%m.%d_%H:%M:%S')}.jpeg"
+                img.save(image_path + image_filename)
+            #self.stream.seek(0)
+ 
+        return encoded_image
 
     def _pump_update(self):
         """현재 self.pump_state에 맞게 펌프를 끄거나 켜는 함수"""

@@ -29,16 +29,10 @@
       </div>
     </div>
     <div class="state_container">
-      <span id="heater_state_text" class="state_text"
-        >히터 : {{heater_state}}</span
-      >
+      <span id="heater_state_text" class="state_text">히터 : {{heater_state}}</span>
       <span id="pump_state_text" class="state_text">펌프 : {{pump_state}}</span>
-      <span id="led_first_state_text" class="state_text"
-        >1층 LED : {{led_first_state}}</span
-      >
-      <span id="led_second_state_text" class="state_text"
-        >2층 LED : {{led_second_state}}</span
-      >
+      <span id="led_first_state_text" class="state_text">1층 LED : {{led_first_state}}</span>
+      <span id="led_second_state_text" class="state_text">2층 LED : {{led_second_state}}</span>
     </div>
     <p class="recent_timestamp" id="recent_timestamp_text">최근 데이터 불러온 시각 : {{recent_timestamp | safe}}</p>
 
@@ -184,6 +178,10 @@
         console.log("Received temperature:" + msg.temperature);
         console.log("Received water_level:" + msg.water_level);
         console.log("Received humidity:" + msg.humidity);
+	console.log("Received pump_state:" + msg.pump_state);
+	console.log("Received heater_state:" + msg.heater_state);
+	console.log("Received led_first_state :" + msg.led_first_state);
+	console.log("Received led_second_state :" + msg.led_second_state);
         addData1(msg.temperature, msg.recent_timestamp);
         addData2(msg.water_level, msg.recent_timestamp);
         addData3(msg.humidity, msg.recent_timestamp);

@@ -10,11 +10,11 @@ import RPi.GPIO as GPIO
 import base64
 from functools import wraps
 import sqlite3
-
+	
 app = Flask(__name__)
 socketio = SocketIO(app)
 # 사용자 로그인 성공 여부
-authenticated = False
+authenticated = False 
 
 
 class FlaskAppWrapper:
@@ -105,7 +105,9 @@ class FlaskAppWrapper:
         background_emit_measurement_thread = socketio.start_background_task(
             self.measure_and_emit_periodically
         )
-        # background_streaming_thread = socketio.start_background_task(self.update_image_periodically)
+
+	# TODO:카메라 관련 주석 풀기        
+	# background_streaming_thread = socketio.start_background_task(self.update_image_periodically)
 
         # CLEANUP : 스마트팜이 스스로 상태를 계속 조절하는 스레드와 그 스레드용 함수는 app.py가 아니라 hardware.py에 있어야 하고, 스마트팜의 __init__함수에서 스레드가 시작되는게 마땅함!
         background_adjust_thread = socketio.start_background_task(
