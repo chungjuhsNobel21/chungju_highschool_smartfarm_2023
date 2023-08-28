@@ -1,5 +1,5 @@
 import RPi.GPIO as GPIO
-
+from socketIO_client import SocketIO, LoggingNamespace
 # pip install Adafruit_DHT로 DHT 온습도센서 사용 모듈을 설치
 import Adafruit_DHT
 import threading
@@ -20,16 +20,21 @@ pin_pump = 16
 pin_dhts = [26, 4, 18, 21]
 
 
+
 # 사용자 설정값이 주어지지 않았을 경우 사용할 기본값
 DEFAULT_MIN_TEMP = 18
 DEFAULT_ON_TIME = time(hour=5)
 DEFAULT_OFF_TIME = time(hour=19)
 
+# 사용할 서버 앱 초기화
+app = Flask(__name__)
+# TODO : IP주소와 포트번호 배포용으로 바꾸기
+socketio = SocketIO('localhost', 8000, LoggingNamespace)
 
 # 스마트팜 하드웨어와 소통하는 클래스를 정의
 class SmartFarmDevice:
     """
-    서버에서 스마트팜을 조작하기 위해 만든 스마트팜 제어 클래스
+    스마트팜 서버 클래스
     핀 값들은 이 객체에 self.(핀번호) 변수로 저장된게 아니라 hardware.py 상단에 pin_어쩌구로 정의된거 갖다 씀.
 
     measure_어쩌구()로 어쩌구 값(온습도나 수위)을 측정해 self.어쩌구에 그 측정값들을 저장하고
@@ -42,12 +47,7 @@ class SmartFarmDevice:
 
     """
 
-    def __init__(
-        self,
-        user_set_min_temp=None,
-        user_set_on_time: time = None,
-        user_set_off_time: time = None,
-    ):
+    def __init__(self, user_set_min_temp=None, user_set_on_time: time = None, user_set_off_time: time = None,):
         """
         클래스 초기화하며 서버에 저장된 마지막 사용자 설정상태를 인자로 받아 self.user_set_(변수)로 저장함.
         마지막 사용자 설정상태가 주어지지 않으면 자동으로 최저온도 18도, 켜는시각 05시 00분, 끄는 시각 19시 00분으로 설정됨.
@@ -55,6 +55,8 @@ class SmartFarmDevice:
         - user_set_on_time(time) : 사용자가 설정한 불 켜는 시각
         - user_set_off_time(time) : 사용자가 설정한 불 끄는 시각
         """
+        self.image_send_count = 0
+
         # 측정값들 변수 정의
         self.temperature = 15
         self.humidity = 50
@@ -65,6 +67,7 @@ class SmartFarmDevice:
         self.led_first_state = GPIO.HIGH
         self.led_second_state = GPIO.HIGH
         self.heater_state = GPIO.LOW
+
         # spi 기본 설정
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
@@ -97,6 +100,82 @@ class SmartFarmDevice:
 
         # 사용자 설정값에 맞게 스마트팜 전등과 히터를 켜거나 끔
         self.adjust()
+
+        # 라우팅 및 백그라운드 스레드 설정 등 함
+        self.setup_server()
+
+    def setup_server(self):
+        # 환경 조절 스레드
+        self.adjust_timer = threading.Timer(2, self.adjust)
+        # 주기적으로 서버로부터 유저 설정 얻어오는 스레드
+        self.get_user_setting_timer = threading.Timer(5, self.get_user_setting)
+        # 측정 및 emit 스레드
+        self.measure_and_emit_timer = threading.Timer(30, self.measure_and_emit)
+        # 이미지 촬영 후 emit 스레드
+        self.update_image_timer = threading.Timer(6, self.update_image)
+
+    def convert_state(self, i):
+        """
+        스마트팜 객체가 사용하는 GPIO.HIGH, GPIO.LOW와 같은 state를 "ON"이나 "OFF"로 변환해주는 함수.
+        """
+        if i == GPIO.HIGH:
+            return "ON"
+        elif i == GPIO.LOW:
+            return "OFF"
+        else:
+            return i
+
+    # TEST : 스마트팜 adjust 함수 테스트
+    def adjust(self):
+        socketio.emit('user_setting_request', None, self.on_user_setting_data_received)
+        socketio.wait_for_callback(seconds=1)
+
+    # TEST : 스마트팜 on_user_setting_data_received 함수 테스트     
+    def on_user_setting_data_received(self, data):
+        print("[hardware] : on_user_setting_data_received 함수 실행됨")
+        print(data)
+
+    # TEST : 스마트팜 measure_and_emit 함수 테스트
+    def measure_and_emit(self):
+        print("[hardware.measure_and_emit() 실행됨]")
+        start_time = time.time()
+        now = datetime.now()
+        now_str = now.strftime("%Y.%m.%d %H:%M:%S")
+        name = [
+            "recent_timestamp",
+            "humidity",
+            "temperature",
+            "water_level",
+            "led_first_state",
+            "led_second_state",
+            "heater_state",
+            "pump_state",
+        ]
+        states = list(map(self.convert_state, [self.led_first_state, self.led_second_state, self.heater_state, self.pump_state]))
+        data_dict = dict(zip(name, [now_str, self.humidity, self.temperature, self.water_level] + states))  # 만든 결과 dict
+        # 이벤트 이름 'give_data'로 데이터 data_dict를 emit -> stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것
+        socketio.emit("sensor_data", data_dict)  # socketio.emit 함수를 사용할때는 jsonify()를 사용하지 말고 그냥 딕셔너리 형태의 데이터를 주어야 함!
+        # 참고 : https://stackoverflow.com/questions/75004494/typeerror-object-of-type-response-is-not-json-serializable-2
+
+
+    # TEST : 스마트팜 update_image_periodically 함수 테스트
+    def update_image(self):
+        """
+        6초에 한번씩 이미지를 얻어 'give_image'란 이벤트 이름으로 이미지를 byte형으로 서버에 emit하는 스레드용 함수.
+        30초에 한번씩은 스마트팜에서 얻은 byte형 이미지를 로컬에 측정시각을 파일 이름으로 하여 jpeg로 저장함.
+        """
+        print(f"[update_image 실행됨] {self.image_send_count}")
+        # 사진을 파일로 저장하는 주기는 30초로하고, 30초 이전에는 저장 없이 스트림에서 byte64로 이미지만 가져옴
+        # CLEANUP : 이미지를 파일로 저장하는 기능은 스마트팜이 아니라 서버에서 구현하는게 맞을듯. 스마트팜의 get_image에 save_to_file을 인자로 주어 그에 맞게 스마트팜에서 이미지를 저장하거나 저장하지 않도록 하는 것이 아니라,
+        #           스마트팜은 단순히 이미지를 찍어 byte로 리턴하고, 저장은 서버의 update_image 함수에서 하자
+        
+        if self.image_send_count % 5 == 0:
+            byte_image = self.smartfarm.get_image(save_to_file=True)
+            self.image_send_count = 0
+        else:
+            byte_image = self.smartfarm.get_image(save_to_file=False)
+            self.imgae_send_count += 1
+        socketio.emit("give_image_to_server", {"byte_image": byte_image})
 
     def check_state_integrity(self, state):
         """state가 허용된 값인 GPIO.HIGH 혹은 GPIO.LOW 둘 중 하나의 값인지 무결성을 검증하는 함수"""
@@ -207,7 +286,7 @@ class SmartFarmDevice:
         sensor_type = Adafruit_DHT.DHT11
 
         # 측정을 위한 Worker 스레드 클래스
-        class Worker(threading.Thread):
+        class MeasureWorker(threading.Thread):
             def __init__(self, pin):
                 super().__init__()
                 self.temp = None
@@ -228,7 +307,7 @@ class SmartFarmDevice:
         # 측정용 스레드 만들고 동시에 실행하여 측정값을 얻음
         threads = []
         for i in range(4):
-            thread = Worker(pin_dhts[i])
+            thread = MeasureWorker(pin_dhts[i])
             thread.start()
             threads.append(thread)
 
@@ -380,8 +459,6 @@ class SmartFarmDevice:
         #        사진을 찍어 byte로 반환함.
         #        -save_to_file : True로 설정되면 f"./captured_images/{datetime.now().strftime('%Y.%m.%d_%H:%M:%S')}.jpeg"로 파일을 저장
         print(f"[hardware.get_image({save_to_file}) 실행됨]")
-
-
         photo_width = 600
         photo_height = 600
         #self.camera.capture(self.stream, format='jpeg')

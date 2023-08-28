@@ -6,11 +6,10 @@ from time import strftime
 import time
 from PIL import Image
 import numpy as np
-import RPi.GPIO as GPIO
 import base64
 from functools import wraps
 import sqlite3
-	
+
 app = Flask(__name__)
 socketio = SocketIO(app)
 # 사용자 로그인 성공 여부
@@ -101,29 +100,8 @@ class FlaskAppWrapper:
         # 라우팅
         self.setup_route()
 
-        # background thread 시작함
-        background_emit_measurement_thread = socketio.start_background_task(
-            self.measure_and_emit_periodically
-        )
-
 	# TODO:카메라 관련 주석 풀기        
 	# background_streaming_thread = socketio.start_background_task(self.update_image_periodically)
-
-        # CLEANUP : 스마트팜이 스스로 상태를 계속 조절하는 스레드와 그 스레드용 함수는 app.py가 아니라 hardware.py에 있어야 하고, 스마트팜의 __init__함수에서 스레드가 시작되는게 마땅함!
-        background_adjust_thread = socketio.start_background_task(
-            self.adjust_periodically
-        )
-
-    def convert_state(self, i):
-        """
-        스마트팜 객체가 사용하는 GPIO.HIGH, GPIO.LOW와 같은 state를 "ON"이나 "OFF"로 변환해주는 함수.
-        """
-        if i == GPIO.HIGH:
-            return "ON"
-        elif i == GPIO.LOW:
-            return "OFF"
-        else:
-            return i
 
     def setup_route(self):
         """
@@ -143,87 +121,71 @@ class FlaskAppWrapper:
         self.app.add_url_rule("/control/set_time_period","set_time_period",self.set_time_period,methods=["POST"])
         self.app.add_url_rule("/streaming", "streaming", self.streaming, methods=["GET"])
 
-    def measure_and_emit_periodically(self):
+    # TODO : 웹서버에서 sensor_data 이벤트로 emit 된 데이터 처리하기
+    @socketio.on('user_setting_request')
+    def on_user_setting_request_received(self):
+        return self.reference_status
+
+    @socketio.on('sensor_data')
+    def on_sensor_data_received(self, data):
         """
         30초에 한번씩 주기적으로 스마트팜의 측정값들을 갱신하고 얻은 측정값들을 'give_data'란 이벤트 이름으로 emit하는 스레드용 함수
         """
         con_data = sqlite3.connect("./datas.db", check_same_thread = False)  # 다른 스레드에서 쓰기 위한 Data 저장용 DB connection을 하나 더 만듬.. 그냥 self.con_data 객체 쓰면 오류나더라고
         cur_data = con_data.cursor()
-        while True:
-            print("[app.measure_and_emit_periodically() 실행됨]")
-            start_time = time.time()
+        temperature = data["temperature"]
+        humidity = data["humidity"]
+        water_level = data["water_level"]
+        led_first_state = data["led_first_state"]
+        led_second_state = data["led_second_state"]
+        heater_state = data["heater_state"]
+        pump_state = data["pump_state"]
 
-            # 스마트팜 측정 후 데이터 얻음
-            self.smartfarm.measure_temp_and_humidity()
-            self.smartfarm.measure_water_level()
-            temperature = self.smartfarm.get_temperature()
-            humidity = self.smartfarm.get_humidity()
-            water_level = self.smartfarm.get_water_level()
-            led_first_state = self.smartfarm.get_led_first_state()
-            led_second_state = self.smartfarm.get_led_second_state()
-            heater_state = self.smartfarm.get_heater_state()
-            pump_state = self.smartfarm.get_pump_state()
+        # emit 및 저장을 위해 데이터를 가공
+        now = datetime.now()
+        now_str = now.strftime("%Y.%m.%d %H:%M:%S")
+        name = [
+            "recent_timestamp",
+            "humidity",
+            "temperature",
+            "water_level",
+            "led_first_state",
+            "led_second_state",
+            "heater_state",
+            "pump_state",
+        ]
+        states = list(
+            map(self.convert_state, [led_first_state, led_second_state, heater_state, pump_state])
+        )
+        data_dict = dict(
+            zip(name, [now_str, humidity, temperature, water_level] + states)
+        )  # 만든 결과 dict
 
-            # emit 및 저장을 위해 데이터를 가공
-            now = datetime.now()
-            now_str = now.strftime("%Y.%m.%d %H:%M:%S")
-            name = [
-                "recent_timestamp",
-                "humidity",
-                "temperature",
-                "water_level",
-                "led_first_state",
-                "led_second_state",
-                "heater_state",
-                "pump_state",
-            ]
-            states = list(
-                map(self.convert_state, [led_first_state, led_second_state, heater_state, pump_state])
-            )
-            data_dict = dict(
-                zip(name, [now_str, humidity, temperature, water_level] + states)
-            )  # 만든 결과 dict
+        con_data = sqlite3.connect("./datas.db", check_same_thread=False)
+        cur_data = con_data.cursor() 
+        cur_data.execute(
+            f"""INSERT INTO measurements
+                VALUES (
+                    '{now_str}',
+                    {humidity:.1f},
+                    {temperature:.1f},
+                    {water_level:.1f},
+                    '{self.convert_state(led_first_state)}',
+                    '{self.convert_state(led_second_state)}',
+                    '{self.convert_state(heater_state)}',
+                    '{self.convert_state(pump_state)}');
+            """)
+        con_data.commit()
 
-            con_data = sqlite3.connect("./datas.db", check_same_thread=False)
-            cur_data = con_data.cursor() 
-            cur_data.execute(
-                f"""INSERT INTO measurements
-                    VALUES (
-                        '{now_str}',
-                        {humidity:.1f},
-                        {temperature:.1f},
-                        {water_level:.1f},
-			                  '{self.convert_state(led_first_state)}',
-			                  '{self.convert_state(led_second_state)}',
-                        '{self.convert_state(heater_state)}',
-			                  '{self.convert_state(pump_state)}');
-                """)
-            con_data.commit()
+        # 이벤트 이름 'give_data'로 데이터 data_dict를 emit -> stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것
+        with self.app.app_context() as context:
+            socketio.emit("give_data", data_dict)  # socketio.emit 함수를 사용할때는 jsonify()를 사용하지 말고 그냥 딕셔너리 형태의 데이터를 주어야 함!
+            # 참고 : https://stackoverflow.com/questions/75004494/typeerror-object-of-type-response-is-not-json-serializable-2
 
-            # 이전 emit으로부터 30초가 흐를때까지 기다림
-            # 참고 : flask-socketio.readthedocs.io/en/latest/api.html#flask_socketio.SocketIO.sleep (비동기 멈춤)
-            end_time = time.time()
-            if 30 - (end_time - start_time) > 0:
-                print(
-                    f"    [app.acquire_and_emit_periodically] : {30 - (end_time - start_time)} 만큼 기다립니다."
-                )
-                socketio.sleep(30 - (end_time - start_time))
-
-            # 이벤트 이름 'give_data'로 데이터 data_dict를 emit -> stats.html에 적힌 자바스크립트에서 처리해 그래프에 추가할 것
-            with self.app.app_context() as context:
-                socketio.emit(
-                    "give_data", data_dict
-                )  # socketio.emit 함수를 사용할때는 jsonify()를 사용하지 말고 그냥 딕셔너리 형태의 데이터를 주어야 함!
-                # 참고 : https://stackoverflow.com/questions/75004494/typeerror-object-of-type-response-is-not-json-serializable-2
-
-    def adjust_periodically(self):
-        """
-        1초에 한번씩 smartfarm.adjust 함수를 실행시키는 스레드용 함수
-        """
-        # CLEANUP : 스마트팜이 스스로 상태를 계속 조절하는 스레드와 그 스레드용 함수는 app.py가 아니라 hardware.py에 있어야 하고, 스마트팜의 __init__함수에서 그 스레드가 시작되는게 마땅함!
-        while True:
-            self.smartfarm.adjust()
-            socketio.sleep(1)
+    @socketio.on('give_image_to_server')
+    def on_update_image(self, data):
+        byte_image = data["byte_image"]
+        socketio.emit("give_image", {"byte_image": byte_image})
 
     def index(self):
         """
@@ -251,7 +213,6 @@ class FlaskAppWrapper:
         """
         로그인이 되어있을때만 view 함수가 실행될 수 있도록 제어할 데코레이터용 함수
         """
-
         @wraps(func)
         def decorated_view(*args, **kwargs):
             global authenticated
@@ -425,34 +386,6 @@ class FlaskAppWrapper:
         '/streaming'으로 GET 요청이 들어왔을 때 streaming.html을 반환하는 view 함수
         """
         return render_template("streaming.html")
-
-    def update_image_periodically(self):
-        """
-        6초에 한번씩 스마트팜으로부터 이미지를 얻어 'give_image'란 이벤트 이름으로 이미지를 byte형으로 emit하는 스레드용 함수.
-        30초에 한번씩은 스마트팜에서 얻은 byte형 이미지를 로컬에 측정시각을 파일 이름으로 하여 jpeg로 저장함.
-        """
-        last_saved_time = time.time()
-        last_emit_time = time.time()
-        while True:
-            print("[update_image_periodically 실행됨]")
-            current_time = time.time()
-            # 사진을 파일로 저장하는 주기는 30초로하고, 30초 이전에는 저장 없이 스트림에서 byte64로 이미지만 가져옴
-            # CLEANUP : 이미지를 파일로 저장하는 기능은 스마트팜이 아니라 서버에서 구현하는게 맞을듯. 스마트팜의 get_image에 save_to_file을 인자로 주어 그에 맞게 스마트팜에서 이미지를 저장하거나 저장하지 않도록 하는 것이 아니라,
-            #           스마트팜은 단순히 이미지를 찍어 byte로 리턴하고, 저장은 서버의 update_image_periodically 함수에서 하자
-            if current_time - last_saved_time >= 30:
-                byte_image = self.smartfarm.get_image(save_to_file=True)
-                last_saved_time = current_time
-            else:
-                byte_image = self.smartfarm.get_image(save_to_file=False)
-
-            # 사진을 보낸 시간이 6초가 안지났으면 6초 될때까지 기다림
-            if (current_time - last_emit_time) < 6:
-                # print(f"  [update_image_periodically] async sleep for {6 - (current_time - last_emit_time) :.3f} seconds")
-                socketio.sleep(6 - (current_time - last_emit_time))
-            last_emit_time = time.time()
-
-            socketio.emit("give_image", {"byte_image": byte_image})
-
 
 if __name__ == "__main__":
     # flask 앱과 스마트팜을 wrap한 객체 만들고
